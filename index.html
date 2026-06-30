@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#1B1D1F" />
+<title>Our Ledger</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Ledger" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-title">Our&nbsp;Ledger</div>
+    <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Settings">⚙</button>
+  </header>
+
+  <main id="app">
+
+    <!-- Sync status line -->
+    <div id="statusLine" class="status-line" hidden></div>
+
+    <!-- ===== Totals panel (receipt tape) ===== -->
+    <section class="receipt" id="receiptPanel">
+      <div class="month-nav">
+        <button class="nav-arrow" id="prevMonth" aria-label="Previous month">‹</button>
+        <button class="month-label" id="monthLabel">This Month</button>
+        <button class="nav-arrow" id="nextMonth" aria-label="Next month">›</button>
+      </div>
+
+      <div class="grand-total-wrap">
+        <div class="grand-total-label">Total Spent</div>
+        <div class="grand-total" id="grandTotal">$0.00</div>
+      </div>
+
+      <div class="who-pills" id="whoPills">
+        <!-- filled by JS -->
+      </div>
+
+      <div class="tear"></div>
+
+      <div class="cat-breakdown" id="catBreakdown">
+        <!-- filled by JS: receipt-style itemized lines -->
+      </div>
+    </section>
+
+    <!-- ===== Entries list ===== -->
+    <section class="entries" id="entriesSection">
+      <h2 class="entries-heading">Entries</h2>
+      <div id="entriesList" class="entries-list">
+        <!-- filled by JS -->
+      </div>
+      <div id="emptyState" class="empty-state" hidden>
+        Nothing logged for this month yet.<br />Tap + to add the first one.
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Floating add button -->
+  <button id="addBtn" class="fab" aria-label="Add expense">+</button>
+
+  <!-- ===== Add / Edit Expense Sheet ===== -->
+  <div class="sheet-backdrop" id="expenseBackdrop" hidden>
+    <form class="sheet" id="expenseSheet">
+      <div class="sheet-handle"></div>
+      <h2 id="expenseSheetTitle">Log an expense</h2>
+
+      <label class="field">
+        <span>When</span>
+        <input type="date" id="f_date" required />
+      </label>
+
+      <label class="field">
+        <span>Where</span>
+        <input type="text" id="f_where" placeholder="Publix, Amazon, Shell…" required />
+      </label>
+
+      <label class="field">
+        <span>What</span>
+        <input type="text" id="f_what" placeholder="What was it for?" required />
+      </label>
+
+      <label class="field">
+        <span>Amount</span>
+        <input type="number" id="f_amount" inputmode="decimal" step="0.01" min="0" placeholder="0.00" required />
+      </label>
+
+      <div class="field">
+        <span>Who</span>
+        <div class="pill-group" id="f_who"></div>
+      </div>
+
+      <div class="field">
+        <span>Why (category)</span>
+        <div class="pill-group chips" id="f_why"></div>
+      </div>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn-ghost" id="deleteEntryBtn" hidden>Delete</button>
+        <button type="button" class="btn-ghost" id="cancelSheetBtn">Cancel</button>
+        <button type="submit" class="btn-solid" id="saveEntryBtn">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ===== Settings Sheet ===== -->
+  <div class="sheet-backdrop" id="settingsBackdrop" hidden>
+    <form class="sheet sheet-tall" id="settingsSheet">
+      <div class="sheet-handle"></div>
+      <h2>Settings</h2>
+
+      <p class="sheet-note">
+        Your data lives in a <strong>private</strong> GitHub repo, separate from the
+        public repo that hosts this app. You'll need a fine-grained personal access
+        token scoped to just that repo's contents (read &amp; write).
+      </p>
+
+      <label class="field">
+        <span>Data repo owner</span>
+        <input type="text" id="s_owner" placeholder="e.g. caydensmith" required />
+      </label>
+
+      <label class="field">
+        <span>Data repo name</span>
+        <input type="text" id="s_repo" placeholder="e.g. ledger-data" required />
+      </label>
+
+      <label class="field">
+        <span>Branch</span>
+        <input type="text" id="s_branch" placeholder="main" value="main" />
+      </label>
+
+      <label class="field">
+        <span>Personal access token</span>
+        <input type="password" id="s_token" placeholder="github_pat_…" required autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span>This device defaults to</span>
+        <div class="pill-group" id="s_defaultWho"></div>
+      </label>
+
+      <div class="field">
+        <span>Categories</span>
+        <div class="pill-group chips" id="s_categories"></div>
+        <div class="add-category-row">
+          <input type="text" id="s_newCategory" placeholder="Add a category…" />
+          <button type="button" class="btn-ghost small" id="s_addCategoryBtn">Add</button>
+        </div>
+      </div>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn-ghost" id="cancelSettingsBtn">Cancel</button>
+        <button type="submit" class="btn-solid" id="saveSettingsBtn">Save &amp; Connect</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
