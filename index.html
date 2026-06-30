@@ -179,9 +179,42 @@
         <div id="s_budgets" class="budget-list"></div>
       </div>
 
+      <div class="field">
+        <span>Past transactions</span>
+        <button type="button" class="btn-ghost small" id="openImportBtn" style="align-self:flex-start;">Bulk import past expenses →</button>
+      </div>
+
       <div class="sheet-actions">
         <button type="button" class="btn-ghost" id="cancelSettingsBtn">Cancel</button>
         <button type="submit" class="btn-solid" id="saveSettingsBtn">Save &amp; Connect</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ===== Bulk Import Sheet ===== -->
+  <div class="sheet-backdrop" id="importBackdrop" hidden>
+    <form class="sheet sheet-tall" id="importSheet">
+      <div class="sheet-handle"></div>
+      <h2>Bulk import past expenses</h2>
+
+      <p class="sheet-note">
+        One expense per line, fields separated by a pipe ( <code>|</code> ):<br />
+        <code>date|where|what|who|why|amount</code><br />
+        Example: <code>2026-03-14|Publix|Groceries run|joint|Groceries|84.21</code><br /><br />
+        Ask Claude to convert your past transactions (bank export, spreadsheet, screenshot,
+        whatever you've got) into this layout, then paste the result below.
+      </p>
+
+      <label class="field">
+        <span>Paste your transactions</span>
+        <textarea id="i_text" rows="10" placeholder="2026-03-14|Publix|Groceries run|joint|Groceries|84.21"></textarea>
+      </label>
+
+      <div id="importResult" class="sheet-note" hidden></div>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn-ghost" id="cancelImportBtn">Cancel</button>
+        <button type="submit" class="btn-solid" id="runImportBtn">Import</button>
       </div>
     </form>
   </div>
