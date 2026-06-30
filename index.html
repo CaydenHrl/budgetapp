@@ -40,6 +40,7 @@
       <div class="grand-total-wrap">
         <div class="grand-total-label">Total Spent</div>
         <div class="grand-total" id="grandTotal">$0.00</div>
+        <div class="delta-line" id="deltaLine"></div>
       </div>
 
       <div class="who-pills" id="whoPills">
@@ -48,9 +49,22 @@
 
       <div class="tear"></div>
 
+      <div class="donut-row">
+        <div class="donut-wrap">
+          <div class="donut" id="donutChart"></div>
+          <div class="donut-hole">
+            <div class="donut-hole-label">Top</div>
+            <div class="donut-hole-value" id="donutTopCat">—</div>
+          </div>
+        </div>
+        <div class="donut-legend" id="donutLegend"></div>
+      </div>
+
       <div class="cat-breakdown" id="catBreakdown">
         <!-- filled by JS: receipt-style itemized lines -->
       </div>
+
+      <button type="button" class="review-link" id="reviewBtn">Month in Review →</button>
     </section>
 
     <!-- ===== Entries list ===== -->
@@ -159,11 +173,43 @@
         </div>
       </div>
 
+      <div class="field">
+        <span>Monthly budgets (optional)</span>
+        <div class="sheet-note" style="margin:0 0 4px;">Leave blank for no cap on a category.</div>
+        <div id="s_budgets" class="budget-list"></div>
+      </div>
+
       <div class="sheet-actions">
         <button type="button" class="btn-ghost" id="cancelSettingsBtn">Cancel</button>
         <button type="submit" class="btn-solid" id="saveSettingsBtn">Save &amp; Connect</button>
       </div>
     </form>
+  </div>
+
+  <!-- ===== Month in Review Sheet ===== -->
+  <div class="sheet-backdrop" id="reviewBackdrop" hidden>
+    <div class="sheet sheet-tall" id="reviewSheet">
+      <div class="sheet-handle"></div>
+      <h2 id="reviewTitle">Month in Review</h2>
+
+      <div class="stat-grid" id="reviewStats"></div>
+
+      <h3 class="review-section-title">Categories</h3>
+      <div class="rank-list" id="reviewCategories"></div>
+
+      <h3 class="review-section-title">Biggest single purchases</h3>
+      <div class="rank-list" id="reviewPurchases"></div>
+
+      <h3 class="review-section-title">Who paid the most</h3>
+      <div class="rank-list" id="reviewWho"></div>
+
+      <h3 class="review-section-title">Last 6 months</h3>
+      <div class="trend-chart" id="reviewTrend"></div>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn-solid" id="closeReviewBtn" style="flex:1;">Close</button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>
