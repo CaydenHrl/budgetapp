@@ -769,6 +769,107 @@ function closeReviewSheet() {
 }
 
 // ---------------------------------------------------------------------------
+// Bulk import
+// ---------------------------------------------------------------------------
+function openImportSheet() {
+  closeSettingsSheet();
+  document.getElementById("i_text").value = "";
+  const resultEl = document.getElementById("importResult");
+  resultEl.hidden = true;
+  document.getElementById("importBackdrop").hidden = false;
+}
+
+function closeImportSheet() {
+  document.getElementById("importBackdrop").hidden = true;
+}
+
+function parseImportText(text) {
+  const lines = text.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+  const validEntries = [];
+  const errors = [];
+  const newCategories = [];
+
+  lines.forEach((line, idx) => {
+    const lineNum = idx + 1;
+    const fields = line.split("|").map((f) => f.trim());
+
+    // skip an optional header row
+    if (lineNum === 1 && fields[0] && fields[0].toLowerCase() === "date") return;
+
+    if (fields.length !== 6) {
+      errors.push(`Line ${lineNum}: expected 6 fields separated by "|", got ${fields.length}`);
+      return;
+    }
+    const [date, where, what, whoRaw, whyRaw, amountRaw] = fields;
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(new Date(date + "T00:00:00").getTime())) {
+      errors.push(`Line ${lineNum}: bad date "${date}" — use YYYY-MM-DD`);
+      return;
+    }
+    if (!where) { errors.push(`Line ${lineNum}: "where" is empty`); return; }
+    if (!what) { errors.push(`Line ${lineNum}: "what" is empty`); return; }
+
+    const who = whoRaw.toLowerCase();
+    if (!WHO_DEFS.some((w) => w.key === who)) {
+      errors.push(`Line ${lineNum}: "who" must be joint, kenzie, or cayden — got "${whoRaw}"`);
+      return;
+    }
+
+    const amount = parseFloat(amountRaw.replace(/[^0-9.\-]/g, ""));
+    if (isNaN(amount) || amount < 0) {
+      errors.push(`Line ${lineNum}: bad amount "${amountRaw}"`);
+      return;
+    }
+
+    if (!whyRaw) { errors.push(`Line ${lineNum}: "why" (category) is empty`); return; }
+    let why = whyRaw;
+    const existing = categories.find((c) => c.toLowerCase() === whyRaw.toLowerCase());
+    if (existing) {
+      why = existing;
+    } else if (!newCategories.some((c) => c.toLowerCase() === whyRaw.toLowerCase())) {
+      newCategories.push(whyRaw);
+    }
+
+    validEntries.push({
+      id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)),
+      date, where, what, amount, who, why,
+      createdAt: new Date().toISOString(),
+    });
+  });
+
+  return { validEntries, errors, newCategories };
+}
+
+async function handleImportSubmit(ev) {
+  ev.preventDefault();
+  const text = document.getElementById("i_text").value;
+  const { validEntries, errors, newCategories } = parseImportText(text);
+
+  const resultEl = document.getElementById("importResult");
+  resultEl.hidden = false;
+
+  if (validEntries.length === 0) {
+    resultEl.textContent = errors.length
+      ? `Nothing imported. ${errors.length} line(s) had problems:\n${errors.join("\n")}`
+      : "Nothing to import — paste some lines first.";
+    return;
+  }
+
+  expenses.push(...validEntries);
+  if (newCategories.length > 0) categories.push(...newCategories);
+
+  renderAll();
+  resultEl.textContent = `Imported ${validEntries.length} entr${validEntries.length === 1 ? "y" : "ies"}.` +
+    (newCategories.length ? ` Added ${newCategories.length} new categor${newCategories.length === 1 ? "y" : "ies"}: ${newCategories.join(", ")}.` : "") +
+    (errors.length ? `\n${errors.length} line(s) skipped:\n${errors.join("\n")}` : "");
+
+  await persistExpenses(`Bulk import ${validEntries.length} expense entries`);
+  if (newCategories.length > 0) {
+    await persistCategories("Add categories from bulk import");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
 document.getElementById("prevMonth").addEventListener("click", () => {
@@ -819,6 +920,13 @@ document.getElementById("s_addCategoryBtn").addEventListener("click", () => {
     renderBudgetInputs();
   }
   input.value = "";
+});
+
+document.getElementById("openImportBtn").addEventListener("click", openImportSheet);
+document.getElementById("cancelImportBtn").addEventListener("click", closeImportSheet);
+document.getElementById("importSheet").addEventListener("submit", handleImportSubmit);
+document.getElementById("importBackdrop").addEventListener("click", (e) => {
+  if (e.target.id === "importBackdrop") closeImportSheet();
 });
 
 // ---------------------------------------------------------------------------
