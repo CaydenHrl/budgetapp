@@ -19,6 +19,18 @@ const DEFAULT_CATEGORIES = [
 const LS_SETTINGS = "ledger_settings_v1";
 const LS_CACHE_EXPENSES = "ledger_cache_expenses_v1";
 const LS_CACHE_CATEGORIES = "ledger_cache_categories_v1";
+const LS_CACHE_BUDGETS = "ledger_cache_budgets_v1";
+
+// Stable category color assignment (by position in the categories list, so
+// a given category keeps its color across months even as rankings shift).
+const CATEGORY_PALETTE = [
+  "#C9A227", "#4FA68C", "#D97757", "#5B7FA6",
+  "#8E6FA8", "#B5495B", "#6FA8A0", "#A8915B",
+];
+function getCategoryColor(catName) {
+  const idx = categories.indexOf(catName);
+  return CATEGORY_PALETTE[(idx < 0 ? 0 : idx) % CATEGORY_PALETTE.length];
+}
 
 // ---------------------------------------------------------------------------
 // State
@@ -26,6 +38,8 @@ const LS_CACHE_CATEGORIES = "ledger_cache_categories_v1";
 let settings = loadSettings();
 let categories = [];
 let categoriesSha = null;
+let budgets = {};
+let budgetsSha = null;
 let expenses = [];
 let expensesSha = null;
 let viewDate = startOfMonth(new Date());
@@ -149,14 +163,17 @@ function showStatus(msg, kind) {
 function cacheLocally() {
   localStorage.setItem(LS_CACHE_EXPENSES, JSON.stringify({ data: expenses, sha: expensesSha }));
   localStorage.setItem(LS_CACHE_CATEGORIES, JSON.stringify({ data: categories, sha: categoriesSha }));
+  localStorage.setItem(LS_CACHE_BUDGETS, JSON.stringify({ data: budgets, sha: budgetsSha }));
 }
 
 function loadFromCache() {
   try {
     const e = JSON.parse(localStorage.getItem(LS_CACHE_EXPENSES) || "null");
     const c = JSON.parse(localStorage.getItem(LS_CACHE_CATEGORIES) || "null");
+    const b = JSON.parse(localStorage.getItem(LS_CACHE_BUDGETS) || "null");
     if (e) { expenses = e.data || []; expensesSha = e.sha; }
     if (c) { categories = c.data || []; categoriesSha = c.sha; }
+    if (b) { budgets = b.data || {}; budgetsSha = b.sha; }
   } catch { /* ignore */ }
 }
 
@@ -173,9 +190,10 @@ async function loadAllData() {
 
   showStatus("Syncing…");
   try {
-    const [expRes, catRes] = await Promise.all([
+    const [expRes, catRes, budRes] = await Promise.all([
       ghGetFile("data/expenses.json"),
       ghGetFile("data/categories.json"),
+      ghGetFile("data/budgets.json"),
     ]);
 
     expenses = expRes.data || [];
@@ -184,6 +202,9 @@ async function loadAllData() {
     const categoriesExisted = catRes.data !== null;
     categories = catRes.data || DEFAULT_CATEGORIES.slice();
     categoriesSha = catRes.sha;
+
+    budgets = budRes.data || {};
+    budgetsSha = budRes.sha;
 
     cacheLocally();
     renderAll();
@@ -220,6 +241,16 @@ async function persistCategories(message) {
   }
 }
 
+async function persistBudgets(message) {
+  try {
+    budgetsSha = await ghWriteFile("data/budgets.json", budgets, budgetsSha, message);
+    cacheLocally();
+  } catch (err) {
+    console.error(err);
+    showStatus("Couldn't save budgets — check your connection or token", "error");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Date helpers
 // ---------------------------------------------------------------------------
@@ -233,14 +264,23 @@ function isSameMonth(isoDate, monthDate) {
   const d = new Date(isoDate + "T00:00:00");
   return d.getFullYear() === monthDate.getFullYear() && d.getMonth() === monthDate.getMonth();
 }
+function daysInMonth(monthDate) {
+  return new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+}
+function shiftMonths(monthDate, n) {
+  return new Date(monthDate.getFullYear(), monthDate.getMonth() + n, 1);
+}
 
 // ---------------------------------------------------------------------------
 // Computation
 // ---------------------------------------------------------------------------
-function entriesForMonth() {
+function entriesForMonthDate(monthDate) {
   return expenses
-    .filter((e) => isSameMonth(e.date, viewDate))
+    .filter((e) => isSameMonth(e.date, monthDate))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.createdAt || "").localeCompare(a.createdAt || "")));
+}
+function entriesForMonth() {
+  return entriesForMonthDate(viewDate);
 }
 
 function computeMonthSummary(list) {
@@ -268,13 +308,75 @@ function renderAll() {
 
   const list = entriesForMonth();
   const summary = computeMonthSummary(list);
+  const prevList = entriesForMonthDate(shiftMonths(viewDate, -1));
+  const prevSummary = computeMonthSummary(prevList);
 
-  renderReceipt(summary);
+  renderReceipt(summary, prevSummary);
   renderEntries(list);
 }
 
-function renderReceipt(summary) {
+function renderDeltaLine(summary, prevSummary) {
+  const el = document.getElementById("deltaLine");
+  if (prevSummary.grandTotal <= 0) {
+    el.textContent = summary.grandTotal > 0 ? "No data for last month to compare" : "";
+    el.className = "delta-line";
+    return;
+  }
+  const diff = summary.grandTotal - prevSummary.grandTotal;
+  const pct = Math.round((diff / prevSummary.grandTotal) * 100);
+  const prevMonthName = monthFmt.format(shiftMonths(viewDate, -1)).split(" ")[0];
+  if (diff === 0) {
+    el.textContent = `Flat vs ${prevMonthName}`;
+    el.className = "delta-line";
+  } else if (diff > 0) {
+    el.textContent = `▲ ${pct}% vs ${prevMonthName}`;
+    el.className = "delta-line up";
+  } else {
+    el.textContent = `▼ ${Math.abs(pct)}% vs ${prevMonthName}`;
+    el.className = "delta-line down";
+  }
+}
+
+function renderDonut(summary) {
+  const donut = document.getElementById("donutChart");
+  const legend = document.getElementById("donutLegend");
+  const topCatEl = document.getElementById("donutTopCat");
+
+  if (summary.sortedCategories.length === 0 || summary.grandTotal <= 0) {
+    donut.style.background = "var(--surface-raised)";
+    legend.innerHTML = "";
+    topCatEl.textContent = "—";
+    return;
+  }
+
+  let cumulative = 0;
+  const stops = summary.sortedCategories.map(([cat, amt]) => {
+    const startPct = (cumulative / summary.grandTotal) * 100;
+    cumulative += amt;
+    const endPct = (cumulative / summary.grandTotal) * 100;
+    return `${getCategoryColor(cat)} ${startPct}% ${endPct}%`;
+  });
+  donut.style.background = `conic-gradient(${stops.join(", ")})`;
+
+  const [topCat, topAmt] = summary.sortedCategories[0];
+  topCatEl.textContent = topCat;
+  topCatEl.title = moneyFmt.format(topAmt);
+
+  legend.innerHTML = summary.sortedCategories.slice(0, 6).map(([cat, amt]) => {
+    const pct = Math.round((amt / summary.grandTotal) * 100);
+    return `
+      <div class="legend-item">
+        <span class="legend-dot" style="background:${getCategoryColor(cat)}"></span>
+        <span>${escapeHtml(cat)} ${pct}%</span>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderReceipt(summary, prevSummary) {
   document.getElementById("grandTotal").textContent = moneyFmt.format(summary.grandTotal);
+  renderDeltaLine(summary, prevSummary);
+  renderDonut(summary);
 
   const whoPills = document.getElementById("whoPills");
   whoPills.innerHTML = WHO_DEFS.map((w) => `
@@ -291,17 +393,30 @@ function renderReceipt(summary) {
     return;
   }
   const max = summary.sortedCategories[0][1] || 1;
-  catBreakdown.innerHTML = summary.sortedCategories.map(([cat, amt]) => `
-    <div class="cat-row">
-      <div class="cat-row-top">
-        <span class="cat-name">${escapeHtml(cat)}</span>
-        <span class="cat-amount">${moneyFmt.format(amt)}</span>
+  catBreakdown.innerHTML = summary.sortedCategories.map(([cat, amt]) => {
+    const cap = budgets[cat];
+    let barClass = "";
+    let note = "";
+    let pctOfMax = (amt / max) * 100;
+    if (cap > 0) {
+      const pctOfCap = (amt / cap) * 100;
+      note = `<span class="cat-budget-note"> / ${moneyFmt.format(cap)}</span>`;
+      if (pctOfCap >= 100) barClass = "over";
+      else if (pctOfCap >= 80) barClass = "warn";
+      pctOfMax = Math.min(100, pctOfCap);
+    }
+    return `
+      <div class="cat-row">
+        <div class="cat-row-top">
+          <span class="cat-name">${escapeHtml(cat)}</span>
+          <span class="cat-amount">${moneyFmt.format(amt)}${note}</span>
+        </div>
+        <div class="cat-bar-track">
+          <div class="cat-bar-fill ${barClass}" style="width:${Math.max(4, pctOfMax)}%"></div>
+        </div>
       </div>
-      <div class="cat-bar-track">
-        <div class="cat-bar-fill" style="width:${Math.max(4, (amt / max) * 100)}%"></div>
-      </div>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 }
 
 function renderEntries(list) {
@@ -387,8 +502,20 @@ function renderCategoryManager() {
     btn.addEventListener("click", () => {
       categories = categories.filter((c) => c !== btn.dataset.cat);
       renderCategoryManager();
+      renderBudgetInputs();
     });
   });
+}
+
+function renderBudgetInputs() {
+  const el = document.getElementById("s_budgets");
+  el.innerHTML = categories.map((cat) => `
+    <div class="budget-row">
+      <span>${escapeHtml(cat)}</span>
+      <input type="number" inputmode="decimal" step="0.01" min="0" class="budget-input"
+        data-cat="${escapeHtml(cat)}" placeholder="No cap" value="${budgets[cat] ?? ""}" />
+    </div>
+  `).join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -469,6 +596,7 @@ function openSettingsSheet(forced) {
 
   if (categories.length === 0) categories = DEFAULT_CATEGORIES.slice();
   renderCategoryManager();
+  renderBudgetInputs();
 
   document.getElementById("cancelSettingsBtn").hidden = !!forced && !settingsComplete();
   document.getElementById("settingsBackdrop").hidden = false;
@@ -482,12 +610,20 @@ async function handleSettingsSubmit(ev) {
   ev.preventDefault();
   const wasComplete = settingsComplete();
   const oldCategoriesJson = JSON.stringify(categories);
+  const oldBudgetsJson = JSON.stringify(budgets);
 
   settings.owner = document.getElementById("s_owner").value.trim();
   settings.repo = document.getElementById("s_repo").value.trim();
   settings.branch = document.getElementById("s_branch").value.trim() || "main";
   settings.token = document.getElementById("s_token").value.trim();
   saveSettingsToStorage();
+
+  const newBudgets = {};
+  document.querySelectorAll(".budget-input").forEach((input) => {
+    const val = parseFloat(input.value);
+    if (!isNaN(val) && val > 0) newBudgets[input.dataset.cat] = val;
+  });
+  budgets = newBudgets;
 
   closeSettingsSheet();
 
@@ -498,8 +634,138 @@ async function handleSettingsSubmit(ev) {
     if (JSON.stringify(categories) !== oldCategoriesJson) {
       await persistCategories("Update categories");
     }
+    if (JSON.stringify(budgets) !== oldBudgetsJson) {
+      await persistBudgets("Update budgets");
+    }
     showStatus("Settings saved", "ok");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Month in Review
+// ---------------------------------------------------------------------------
+function rankBarRow(rank, label, meta, amount, max, color) {
+  const pct = max > 0 ? Math.max(4, (amount / max) * 100) : 4;
+  return `
+    <div class="rank-row">
+      <span class="rank-num">${rank}.</span>
+      <div class="rank-body">
+        <div class="rank-top-row">
+          <span class="rank-label">${escapeHtml(label)}${meta ? ` <span class="rank-meta">${escapeHtml(meta)}</span>` : ""}</span>
+          <span class="rank-amount">${moneyFmt.format(amount)}</span>
+        </div>
+        <div class="rank-bar-track">
+          <div class="rank-bar-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function openReviewSheet() {
+  const list = entriesForMonth();
+  const summary = computeMonthSummary(list);
+  const prevList = entriesForMonthDate(shiftMonths(viewDate, -1));
+  const prevSummary = computeMonthSummary(prevList);
+
+  document.getElementById("reviewTitle").textContent = `${monthFmt.format(viewDate)} in Review`;
+
+  // --- stats grid ---
+  const days = daysInMonth(viewDate);
+  const avgPerDay = summary.grandTotal / days;
+  const merchantTotals = {};
+  list.forEach((e) => { merchantTotals[e.where] = (merchantTotals[e.where] || 0) + (Number(e.amount) || 0); });
+  const topMerchant = Object.entries(merchantTotals).sort((a, b) => b[1] - a[1])[0];
+
+  let deltaText = "No prior month data";
+  if (prevSummary.grandTotal > 0) {
+    const diff = summary.grandTotal - prevSummary.grandTotal;
+    const pct = Math.round((diff / prevSummary.grandTotal) * 100);
+    deltaText = diff === 0 ? "Flat" : `${diff > 0 ? "▲" : "▼"} ${Math.abs(pct)}%`;
+  }
+
+  document.getElementById("reviewStats").innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Total spent</div>
+      <div class="stat-value">${moneyFmt.format(summary.grandTotal)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Vs last month</div>
+      <div class="stat-value">${deltaText}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Entries logged</div>
+      <div class="stat-value">${list.length}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg per day</div>
+      <div class="stat-value">${moneyFmt.format(avgPerDay)}</div>
+    </div>
+    <div class="stat-card wide">
+      <div class="stat-label">Top merchant</div>
+      <div class="stat-value">${topMerchant ? `${escapeHtml(topMerchant[0])} — ${moneyFmt.format(topMerchant[1])}` : "—"}</div>
+    </div>
+  `;
+
+  // --- categories ranked ---
+  const catEl = document.getElementById("reviewCategories");
+  if (summary.sortedCategories.length === 0) {
+    catEl.innerHTML = `<div class="cat-empty">Nothing logged this month.</div>`;
+  } else {
+    const maxCat = summary.sortedCategories[0][1];
+    catEl.innerHTML = summary.sortedCategories
+      .map(([cat, amt], i) => rankBarRow(i + 1, cat, null, amt, maxCat, getCategoryColor(cat)))
+      .join("");
+  }
+
+  // --- top single purchases ---
+  const purchasesEl = document.getElementById("reviewPurchases");
+  const topPurchases = [...list].sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0)).slice(0, 5);
+  if (topPurchases.length === 0) {
+    purchasesEl.innerHTML = `<div class="cat-empty">Nothing logged this month.</div>`;
+  } else {
+    const maxPurchase = Number(topPurchases[0].amount) || 1;
+    const dateFmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+    purchasesEl.innerHTML = topPurchases
+      .map((e, i) => rankBarRow(
+        i + 1, e.where, `${e.what} · ${dateFmt.format(new Date(e.date + "T00:00:00"))}`,
+        Number(e.amount) || 0, maxPurchase, "var(--brass)"
+      ))
+      .join("");
+  }
+
+  // --- who paid the most ---
+  const whoEl = document.getElementById("reviewWho");
+  const whoRanked = WHO_DEFS.map((w) => ({ ...w, amount: summary.byWho[w.key] || 0 }))
+    .sort((a, b) => b.amount - a.amount);
+  const maxWho = whoRanked[0].amount || 1;
+  whoEl.innerHTML = whoRanked
+    .map((w, i) => rankBarRow(i + 1, w.label, null, w.amount, maxWho, `var(${w.varName})`))
+    .join("");
+
+  // --- 6 month trend ---
+  const trendEl = document.getElementById("reviewTrend");
+  const months = [];
+  for (let i = 5; i >= 0; i--) months.push(shiftMonths(viewDate, -i));
+  const totals = months.map((m) => computeMonthSummary(entriesForMonthDate(m)).grandTotal);
+  const maxTrend = Math.max(...totals, 1);
+  const trendLabelFmt = new Intl.DateTimeFormat("en-US", { month: "short" });
+  trendEl.innerHTML = months.map((m, i) => {
+    const isCurrent = m.getFullYear() === viewDate.getFullYear() && m.getMonth() === viewDate.getMonth();
+    const h = Math.max(4, (totals[i] / maxTrend) * 100);
+    return `
+      <div class="trend-col">
+        <div class="trend-bar ${isCurrent ? "current" : ""}" style="height:${h}%" title="${moneyFmt.format(totals[i])}"></div>
+        <div class="trend-label">${trendLabelFmt.format(m)}</div>
+      </div>
+    `;
+  }).join("");
+
+  document.getElementById("reviewBackdrop").hidden = false;
+}
+
+function closeReviewSheet() {
+  document.getElementById("reviewBackdrop").hidden = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -519,6 +785,12 @@ document.getElementById("addBtn").addEventListener("click", () => openExpenseShe
 document.getElementById("cancelSheetBtn").addEventListener("click", closeExpenseSheet);
 document.getElementById("expenseSheet").addEventListener("submit", handleExpenseSubmit);
 document.getElementById("deleteEntryBtn").addEventListener("click", handleDeleteEntry);
+
+document.getElementById("reviewBtn").addEventListener("click", openReviewSheet);
+document.getElementById("closeReviewBtn").addEventListener("click", closeReviewSheet);
+document.getElementById("reviewBackdrop").addEventListener("click", (e) => {
+  if (e.target.id === "reviewBackdrop") closeReviewSheet();
+});
 
 document.getElementById("expenseBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "expenseBackdrop") closeExpenseSheet();
@@ -544,6 +816,7 @@ document.getElementById("s_addCategoryBtn").addEventListener("click", () => {
   if (val && !categories.includes(val)) {
     categories.push(val);
     renderCategoryManager();
+    renderBudgetInputs();
   }
   input.value = "";
 });
