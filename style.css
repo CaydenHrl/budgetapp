@@ -707,13 +707,29 @@ input {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   background: var(--surface-raised);
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: var(--radius-sm);
   padding: 12px 13px;
   font-size: 15px;
+}
+
+.field textarea {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  resize: vertical;
+  min-height: 140px;
+}
+
+.sheet-note code {
+  background: var(--surface-raised);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
 }
 
 .field input:focus,
