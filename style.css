@@ -249,13 +249,28 @@ input {
 }
 
 .cat-bar-track {
+  position: relative;
   height: 5px;
   border-radius: 3px;
   background: var(--surface-raised);
   overflow: hidden;
 }
 
+.cat-bar-track::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, transparent 24.7%, var(--bg) 24.7% 25.3%, transparent 25.3%),
+    linear-gradient(to right, transparent 49.7%, var(--bg) 49.7% 50.3%, transparent 50.3%),
+    linear-gradient(to right, transparent 74.7%, var(--bg) 74.7% 75.3%, transparent 75.3%);
+}
+
 .cat-bar-fill {
+  position: relative;
+  z-index: 1;
   height: 100%;
   border-radius: 3px;
   background: var(--brass);
