@@ -4,11 +4,21 @@
 // GitHub Contents API. No build step, no server — just this static app.
 // ============================================================================
 
+// "who" buckets. Historical entries may still carry the legacy value
+// "joint" from before Necessities/Extras existed — those are handled via
+// resolveWhoDef() everywhere they're displayed, but are no longer offered
+// as a choice when logging or editing an expense.
 const WHO_DEFS = [
-  { key: "joint", label: "Joint", varName: "--who-joint" },
-  { key: "kenzie", label: "Kenzie", varName: "--who-kenzie" },
+  { key: "necessities", label: "Necessities", varName: "--who-necessities" },
+  { key: "extras", label: "Extras", varName: "--who-extras" },
   { key: "cayden", label: "Cayden", varName: "--who-cayden" },
+  { key: "kenzie", label: "Kenzie", varName: "--who-kenzie" },
 ];
+const LEGACY_WHO_JOINT = { key: "joint", label: "Joint (unsorted)", varName: "--text-faint" };
+
+function resolveWhoDef(key) {
+  return WHO_DEFS.find((w) => w.key === key) || LEGACY_WHO_JOINT;
+}
 
 const DEFAULT_CATEGORIES = [
   "Groceries", "Dining & Takeout", "Bills & Utilities", "Subscriptions",
@@ -44,11 +54,13 @@ let expenses = [];
 let expensesSha = null;
 let viewDate = startOfMonth(new Date());
 let editingEntryId = null;
-let selectedWho = settings.defaultWho || "joint";
+let selectedWho = settings.defaultWho || "necessities";
 let selectedWhy = null;
+let entrySortMode = "date"; // "date" | "category" | "price"
 
 let activeTab = "home";
-let activeCategoryFilter = null;
+let browseDimension = "category"; // "category" | "who"
+let activeFilterKey = null;
 let categoryScopeMode = "all"; // "all" | "month"
 let categoryScopeMonth = startOfMonth(new Date());
 let insightsViewDate = startOfMonth(new Date());
@@ -290,7 +302,7 @@ function entriesForMonth() {
 }
 
 function computeMonthSummary(list) {
-  const byWho = { joint: 0, kenzie: 0, cayden: 0 };
+  const byWho = { necessities: 0, extras: 0, cayden: 0, kenzie: 0, joint: 0 };
   const byCategory = {};
   let grandTotal = 0;
 
@@ -318,13 +330,6 @@ function allTimeMonthsTracked() {
   return Math.max(1, set.size);
 }
 
-function avgPerMonthForCategory(cat) {
-  const total = expenses
-    .filter((e) => (e.why || "Other") === cat)
-    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-  return total / allTimeMonthsTracked();
-}
-
 // ---------------------------------------------------------------------------
 // Rendering — top level
 // ---------------------------------------------------------------------------
@@ -339,7 +344,7 @@ function renderAll() {
   renderReceipt(summary, prevSummary);
   renderEntries(list);
 
-  if (activeTab === "categories") renderCategoryTab();
+  if (activeTab === "categories") renderBrowseTab();
   if (activeTab === "insights") renderInsightsTab();
 }
 
@@ -351,7 +356,7 @@ function switchTab(tabName) {
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.classList.toggle("selected", btn.dataset.tab === tabName);
   });
-  if (tabName === "categories") renderCategoryTab();
+  if (tabName === "categories") renderBrowseTab();
   if (tabName === "insights") renderInsightsTab();
   window.scrollTo(0, 0);
 }
@@ -423,12 +428,16 @@ function renderReceipt(summary, prevSummary) {
   renderDonut(summary);
 
   const whoPills = document.getElementById("whoPills");
-  whoPills.innerHTML = WHO_DEFS.map((w) => `
-    <div class="who-pill">
+  const whoRows = WHO_DEFS.map((w) => ({ ...w, amount: summary.byWho[w.key] || 0 }));
+  if (summary.byWho.joint) {
+    whoRows.push({ ...LEGACY_WHO_JOINT, amount: summary.byWho.joint });
+  }
+  whoPills.innerHTML = whoRows.map((w) => `
+    <button type="button" class="who-pill" data-who="${w.key}">
       <span class="who-dot" style="background:var(${w.varName})"></span>
-      <span>${w.label}</span>
-      <span class="who-amount">${moneyFmt.format(summary.byWho[w.key] || 0)}</span>
-    </div>
+      <span>${escapeHtml(w.label)}</span>
+      <span class="who-amount">${moneyFmt.format(w.amount)}</span>
+    </button>
   `).join("");
 
   const catBreakdown = document.getElementById("catBreakdown");
@@ -471,7 +480,7 @@ function renderReceipt(summary, prevSummary) {
   const remaining = summary.sortedCategories.length - topCats.length;
   if (remaining > 0) {
     moreBtn.hidden = false;
-    moreBtn.textContent = `+${remaining} more categor${remaining === 1 ? "y" : "ies"} → Categories tab`;
+    moreBtn.textContent = `+${remaining} more categor${remaining === 1 ? "y" : "ies"} → Browse tab`;
   } else {
     moreBtn.hidden = true;
   }
@@ -489,21 +498,48 @@ function renderEntries(list) {
   emptyState.hidden = true;
 
   const dateFmt = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" });
-  let html = "";
-  let lastDate = null;
+  const shortDateFmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 
-  for (const e of list) {
-    if (e.date !== lastDate) {
-      html += `<div class="date-group-label">${dateFmt.format(new Date(e.date + "T00:00:00"))}</div>`;
-      lastDate = e.date;
+  let sorted;
+  if (entrySortMode === "price") {
+    sorted = [...list].sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0));
+  } else if (entrySortMode === "category") {
+    sorted = [...list].sort((a, b) => {
+      const ca = a.why || "Other", cb = b.why || "Other";
+      if (ca < cb) return -1;
+      if (ca > cb) return 1;
+      return a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
+    });
+  } else {
+    sorted = list; // already newest-first from entriesForMonth()
+  }
+
+  let html = "";
+  let lastGroup = null;
+
+  for (const e of sorted) {
+    let groupLabel = null;
+    if (entrySortMode === "date") groupLabel = dateFmt.format(new Date(e.date + "T00:00:00"));
+    else if (entrySortMode === "category") groupLabel = e.why || "Other";
+
+    if (groupLabel !== null && groupLabel !== lastGroup) {
+      html += `<div class="date-group-label">${escapeHtml(groupLabel)}</div>`;
+      lastGroup = groupLabel;
     }
-    const whoDef = WHO_DEFS.find((w) => w.key === e.who) || WHO_DEFS[0];
+
+    const whoDef = resolveWhoDef(e.who);
+    const shortDate = shortDateFmt.format(new Date(e.date + "T00:00:00"));
+    let metaBits;
+    if (entrySortMode === "date") metaBits = [e.where, e.why || "Other"];
+    else if (entrySortMode === "category") metaBits = [shortDate, e.where];
+    else metaBits = [shortDate, e.where, e.why || "Other"];
+
     html += `
       <div class="entry-row" data-id="${e.id}">
         <span class="entry-who-dot" style="background:var(${whoDef.varName})"></span>
         <div class="entry-main">
-          <div class="entry-where">${escapeHtml(e.where)}</div>
-          <div class="entry-meta">${escapeHtml(e.what)} · ${escapeHtml(e.why || "Other")}</div>
+          <div class="entry-title">${escapeHtml(e.what)}</div>
+          <div class="entry-subtitle">${metaBits.map(escapeHtml).join(" · ")}</div>
         </div>
         <div class="entry-amount">${moneyFmt.format(Number(e.amount) || 0)}</div>
       </div>
@@ -589,7 +625,7 @@ function openExpenseSheet(entry) {
   document.getElementById("f_what").value = entry ? entry.what : "";
   document.getElementById("f_amount").value = entry ? entry.amount : "";
 
-  selectedWho = entry ? entry.who : (settings.defaultWho || "joint");
+  selectedWho = entry ? entry.who : (settings.defaultWho || "necessities");
   selectedWhy = entry ? entry.why : null;
 
   renderWhoPicker("f_who", selectedWho, (val) => (selectedWho = val));
@@ -650,13 +686,15 @@ function openSettingsSheet(forced) {
   document.getElementById("s_branch").value = settings.branch || "main";
   document.getElementById("s_token").value = settings.token || "";
 
-  renderWhoPicker("s_defaultWho", settings.defaultWho || "joint", (val) => (settings.defaultWho = val));
+  renderWhoPicker("s_defaultWho", settings.defaultWho || "necessities", (val) => (settings.defaultWho = val));
 
   if (categories.length === 0) categories = DEFAULT_CATEGORIES.slice();
   renderCategoryManager();
   renderBudgetInputs();
 
-  document.getElementById("cancelSettingsBtn").hidden = !!forced && !settingsComplete();
+  const forceOpen = !!forced && !settingsComplete();
+  document.getElementById("cancelSettingsBtn").hidden = forceOpen;
+  document.getElementById("settingsSheetCloseX").hidden = forceOpen;
   document.getElementById("settingsBackdrop").hidden = false;
 }
 
@@ -700,13 +738,14 @@ async function handleSettingsSubmit(ev) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared rank-row builder
+// Shared rank-row builder (used by Insights; filterKey/filterDim make a row
+// clickable, jumping to the Browse tab pre-filtered)
 // ---------------------------------------------------------------------------
-function rankBarRow(rank, label, meta, amount, max, color, categoryAttr) {
+function rankBarRow(rank, label, meta, amount, max, color, filterKey, filterDim) {
   const pct = max > 0 ? Math.max(4, (amount / max) * 100) : 4;
-  const dataAttr = categoryAttr ? ` data-cat="${escapeHtml(categoryAttr)}"` : "";
+  const dataAttrs = filterKey ? ` data-key="${escapeHtml(filterKey)}" data-dim="${filterDim}"` : "";
   return `
-    <div class="rank-row"${dataAttr}>
+    <div class="rank-row"${dataAttrs}>
       <span class="rank-num">${rank}.</span>
       <div class="rank-body">
         <div class="rank-top-row">
@@ -730,7 +769,6 @@ function renderInsightsTab() {
   const prevList = entriesForMonthDate(shiftMonths(insightsViewDate, -1));
   const prevSummary = computeMonthSummary(prevList);
 
-  document.getElementById("reviewTitle").textContent = "Month in Review";
   document.getElementById("insightsMonthLabel").textContent = monthFmt.format(insightsViewDate);
 
   const days = daysInMonth(insightsViewDate);
@@ -775,7 +813,7 @@ function renderInsightsTab() {
   } else {
     const maxCat = summary.sortedCategories[0][1];
     catEl.innerHTML = summary.sortedCategories
-      .map(([cat, amt], i) => rankBarRow(i + 1, cat, null, amt, maxCat, getCategoryColor(cat), cat))
+      .map(([cat, amt], i) => rankBarRow(i + 1, cat, null, amt, maxCat, getCategoryColor(cat), cat, "category"))
       .join("");
   }
 
@@ -787,19 +825,22 @@ function renderInsightsTab() {
     const maxPurchase = Number(topPurchases[0].amount) || 1;
     const dateFmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
     purchasesEl.innerHTML = topPurchases
-      .map((e, i) => rankBarRow(
-        i + 1, e.where, `${e.what} · ${dateFmt.format(new Date(e.date + "T00:00:00"))}`,
+      .map((e) => rankBarRow(
+        topPurchases.indexOf(e) + 1, e.what, `${e.where} · ${dateFmt.format(new Date(e.date + "T00:00:00"))}`,
         Number(e.amount) || 0, maxPurchase, "var(--brass)"
       ))
       .join("");
   }
 
   const whoEl = document.getElementById("reviewWho");
-  const whoRanked = WHO_DEFS.map((w) => ({ ...w, amount: summary.byWho[w.key] || 0 }))
-    .sort((a, b) => b.amount - a.amount);
+  const whoRanked = WHO_DEFS.map((w) => ({ key: w.key, label: w.label, varName: w.varName, amount: summary.byWho[w.key] || 0 }));
+  if (summary.byWho.joint) {
+    whoRanked.push({ key: "joint", label: LEGACY_WHO_JOINT.label, varName: LEGACY_WHO_JOINT.varName, amount: summary.byWho.joint });
+  }
+  whoRanked.sort((a, b) => b.amount - a.amount);
   const maxWho = whoRanked[0].amount || 1;
   whoEl.innerHTML = whoRanked
-    .map((w, i) => rankBarRow(i + 1, w.label, null, w.amount, maxWho, `var(${w.varName})`))
+    .map((w, i) => rankBarRow(i + 1, w.label, null, w.amount, maxWho, `var(${w.varName})`, w.key, "who"))
     .join("");
 
   const trendEl = document.getElementById("reviewTrend");
@@ -821,53 +862,106 @@ function renderInsightsTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Categories tab (all-time or month-scoped browsing, with monthly average)
+// Browse tab — by Category or by Who, All Time or a specific Month,
+// with a month-over-month delta and an all-time monthly average.
 // ---------------------------------------------------------------------------
-function computeCategoryTotalsForScope() {
+function matchesFilter(e, dimension, key) {
+  return dimension === "category" ? (e.why || "Other") === key : e.who === key;
+}
+
+function labelForKey(dimension, key) {
+  if (dimension === "category") return key;
+  return resolveWhoDef(key).label;
+}
+
+function colorForKey(dimension, key) {
+  if (dimension === "category") return getCategoryColor(key);
+  return `var(${resolveWhoDef(key).varName})`;
+}
+
+function computeTotalsForScope(dimension) {
   const list = categoryScopeMode === "month" ? entriesForMonthDate(categoryScopeMonth) : expenses;
-  const totals = {};
-  allCategoryNames().forEach((c) => { totals[c] = 0; });
-  for (const e of list) {
-    const cat = e.why || "Other";
-    totals[cat] = (totals[cat] || 0) + (Number(e.amount) || 0);
+  let keys;
+  if (dimension === "category") {
+    keys = allCategoryNames();
+  } else {
+    keys = WHO_DEFS.map((w) => w.key);
+    if (expenses.some((e) => e.who === "joint")) keys = keys.concat(["joint"]);
   }
+  const totals = {};
+  keys.forEach((k) => { totals[k] = 0; });
+  list.forEach((e) => {
+    const k = dimension === "category" ? (e.why || "Other") : e.who;
+    if (totals[k] === undefined) return;
+    totals[k] += Number(e.amount) || 0;
+  });
   return Object.entries(totals).sort((a, b) => b[1] - a[1]);
 }
 
-function renderCategoryPickerPillsScoped(totals, selectedCat) {
+function avgPerMonthFor(dimension, key) {
+  const total = expenses
+    .filter((e) => matchesFilter(e, dimension, key))
+    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  return total / allTimeMonthsTracked();
+}
+
+function renderPickerPills(totals, selectedKey) {
   const el = document.getElementById("categoryPickerPills");
   if (totals.length === 0) {
-    el.innerHTML = `<div class="cat-empty">No categories yet — add some in Settings.</div>`;
+    el.innerHTML = `<div class="cat-empty">Nothing to show yet.</div>`;
     return;
   }
-  el.innerHTML = totals.map(([cat, amt]) => `
-    <button type="button" class="pill ${cat === selectedCat ? "selected" : ""}" data-cat="${escapeHtml(cat)}">
-      ${escapeHtml(cat)} · ${moneyFmt.format(amt)}
+  el.innerHTML = totals.map(([key, amt]) => `
+    <button type="button" class="pill ${key === selectedKey ? "selected" : ""}" data-key="${escapeHtml(key)}">
+      ${escapeHtml(labelForKey(browseDimension, key))} · ${moneyFmt.format(amt)}
     </button>
   `).join("");
   el.querySelectorAll(".pill").forEach((btn) => {
     btn.addEventListener("click", () => {
-      activeCategoryFilter = btn.dataset.cat;
-      renderCategoryTab();
+      activeFilterKey = btn.dataset.key;
+      renderBrowseTab();
     });
   });
 }
 
-function renderCategoryEntriesScoped(cat) {
+function renderFilteredEntries(key) {
   const scopedList = categoryScopeMode === "month" ? entriesForMonthDate(categoryScopeMonth) : expenses;
   const list = scopedList
-    .filter((e) => (e.why || "Other") === cat)
+    .filter((e) => matchesFilter(e, browseDimension, key))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.createdAt || "").localeCompare(a.createdAt || "")));
 
   const total = list.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-  const avg = avgPerMonthForCategory(cat);
+  const avg = avgPerMonthFor(browseDimension, key);
   const scopeLabel = categoryScopeMode === "month" ? monthFmt.format(categoryScopeMonth) : "All Time";
+
+  let deltaCardHtml = "";
+  if (categoryScopeMode === "month") {
+    const prevMonth = shiftMonths(categoryScopeMonth, -1);
+    const prevTotal = entriesForMonthDate(prevMonth)
+      .filter((e) => matchesFilter(e, browseDimension, key))
+      .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    let deltaText;
+    if (prevTotal <= 0) {
+      deltaText = total > 0 ? "New this month" : "—";
+    } else {
+      const diff = total - prevTotal;
+      const pct = Math.round((diff / prevTotal) * 100);
+      deltaText = diff === 0 ? "Flat" : `${diff > 0 ? "▲" : "▼"} ${Math.abs(pct)}% (${diff > 0 ? "+" : "−"}${moneyFmt.format(Math.abs(diff))})`;
+    }
+    deltaCardHtml = `
+      <div class="stat-card">
+        <div class="stat-label">Vs ${escapeHtml(monthFmt.format(prevMonth).split(" ")[0])}</div>
+        <div class="stat-value">${deltaText}</div>
+      </div>
+    `;
+  }
 
   document.getElementById("categoryStats").innerHTML = `
     <div class="stat-card">
       <div class="stat-label">Total — ${escapeHtml(scopeLabel)}</div>
       <div class="stat-value">${moneyFmt.format(total)}</div>
     </div>
+    ${deltaCardHtml}
     <div class="stat-card">
       <div class="stat-label">Avg / Month (all time)</div>
       <div class="stat-value">${moneyFmt.format(avg)}</div>
@@ -890,13 +984,13 @@ function renderCategoryEntriesScoped(cat) {
 
   const dateFmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
   container.innerHTML = list.map((e) => {
-    const whoDef = WHO_DEFS.find((w) => w.key === e.who) || WHO_DEFS[0];
+    const whoDef = resolveWhoDef(e.who);
     return `
       <div class="entry-row" data-id="${e.id}">
         <span class="entry-who-dot" style="background:var(${whoDef.varName})"></span>
         <div class="entry-main">
-          <div class="entry-where">${escapeHtml(e.where)}</div>
-          <div class="entry-meta">${escapeHtml(e.what)} · ${dateFmt.format(new Date(e.date + "T00:00:00"))}</div>
+          <div class="entry-title">${escapeHtml(e.what)}</div>
+          <div class="entry-subtitle">${escapeHtml(e.where)} · ${dateFmt.format(new Date(e.date + "T00:00:00"))}</div>
         </div>
         <div class="entry-amount">${moneyFmt.format(Number(e.amount) || 0)}</div>
       </div>
@@ -904,22 +998,25 @@ function renderCategoryEntriesScoped(cat) {
   }).join("");
 }
 
-function renderCategoryTab() {
+function renderBrowseTab() {
   document.getElementById("catMonthNav").hidden = categoryScopeMode !== "month";
   document.getElementById("catMonthLabel").textContent = monthFmt.format(categoryScopeMonth);
   document.querySelectorAll("#catScopePills .pill").forEach((p) => {
     p.classList.toggle("selected", p.dataset.scope === categoryScopeMode);
   });
+  document.querySelectorAll("#browseDimensionPills .pill").forEach((p) => {
+    p.classList.toggle("selected", p.dataset.dim === browseDimension);
+  });
 
-  const totals = computeCategoryTotalsForScope();
-  if (!activeCategoryFilter && totals.length > 0) {
-    activeCategoryFilter = totals[0][0];
+  const totals = computeTotalsForScope(browseDimension);
+  if (!activeFilterKey && totals.length > 0) {
+    activeFilterKey = totals[0][0];
   }
 
-  renderCategoryPickerPillsScoped(totals, activeCategoryFilter);
+  renderPickerPills(totals, activeFilterKey);
 
-  if (activeCategoryFilter) {
-    renderCategoryEntriesScoped(activeCategoryFilter);
+  if (activeFilterKey) {
+    renderFilteredEntries(activeFilterKey);
   } else {
     document.getElementById("categoryStats").innerHTML = "";
     document.getElementById("categoryEntriesList").innerHTML = "";
@@ -947,6 +1044,7 @@ function parseImportText(text) {
   const validEntries = [];
   const errors = [];
   const newCategories = [];
+  const validWho = WHO_DEFS.map((w) => w.key).concat(["joint"]);
 
   lines.forEach((line, idx) => {
     const lineNum = idx + 1;
@@ -969,8 +1067,8 @@ function parseImportText(text) {
     if (!what) { errors.push(`Line ${lineNum}: "what" is empty`); return; }
 
     const who = whoRaw.toLowerCase();
-    if (!WHO_DEFS.some((w) => w.key === who)) {
-      errors.push(`Line ${lineNum}: "who" must be joint, kenzie, or cayden — got "${whoRaw}"`);
+    if (!validWho.includes(who)) {
+      errors.push(`Line ${lineNum}: "who" must be necessities, extras, cayden, or kenzie — got "${whoRaw}"`);
       return;
     }
 
@@ -1044,8 +1142,19 @@ document.getElementById("nextMonth").addEventListener("click", () => {
   renderAll();
 });
 
+document.getElementById("entrySortPills").addEventListener("click", (e) => {
+  const btn = e.target.closest(".pill");
+  if (!btn) return;
+  entrySortMode = btn.dataset.sort;
+  document.querySelectorAll("#entrySortPills .pill").forEach((p) => {
+    p.classList.toggle("selected", p === btn);
+  });
+  renderEntries(entriesForMonth());
+});
+
 document.getElementById("addBtn").addEventListener("click", () => openExpenseSheet(null));
 document.getElementById("cancelSheetBtn").addEventListener("click", closeExpenseSheet);
+document.getElementById("expenseSheetCloseX").addEventListener("click", closeExpenseSheet);
 document.getElementById("expenseSheet").addEventListener("submit", handleExpenseSubmit);
 document.getElementById("deleteEntryBtn").addEventListener("click", handleDeleteEntry);
 document.getElementById("expenseBackdrop").addEventListener("click", (e) => {
@@ -1059,36 +1168,56 @@ document.getElementById("entriesList").addEventListener("click", (e) => {
   if (entry) openExpenseSheet(entry);
 });
 
-// Home -> Categories tab handoff
+// Home -> Browse tab handoff (category rows)
 document.getElementById("catBreakdown").addEventListener("click", (e) => {
   const row = e.target.closest(".cat-row");
   if (!row) return;
+  browseDimension = "category";
   categoryScopeMode = "month";
   categoryScopeMonth = new Date(viewDate);
-  activeCategoryFilter = row.dataset.cat;
+  activeFilterKey = row.dataset.cat;
   switchTab("categories");
 });
 document.getElementById("moreCategoriesBtn").addEventListener("click", () => {
+  browseDimension = "category";
   categoryScopeMode = "month";
   categoryScopeMonth = new Date(viewDate);
-  activeCategoryFilter = null;
+  activeFilterKey = null;
   switchTab("categories");
 });
 
-// Categories tab controls
+// Home -> Browse tab handoff (who pills)
+document.getElementById("whoPills").addEventListener("click", (e) => {
+  const pill = e.target.closest(".who-pill");
+  if (!pill) return;
+  browseDimension = "who";
+  categoryScopeMode = "month";
+  categoryScopeMonth = new Date(viewDate);
+  activeFilterKey = pill.dataset.who;
+  switchTab("categories");
+});
+
+// Browse tab controls
+document.getElementById("browseDimensionPills").addEventListener("click", (e) => {
+  const btn = e.target.closest(".pill");
+  if (!btn) return;
+  browseDimension = btn.dataset.dim;
+  activeFilterKey = null;
+  renderBrowseTab();
+});
 document.getElementById("catScopePills").addEventListener("click", (e) => {
   const btn = e.target.closest(".pill");
   if (!btn) return;
   categoryScopeMode = btn.dataset.scope;
-  renderCategoryTab();
+  renderBrowseTab();
 });
 document.getElementById("prevCatMonth").addEventListener("click", () => {
   categoryScopeMonth = shiftMonths(categoryScopeMonth, -1);
-  renderCategoryTab();
+  renderBrowseTab();
 });
 document.getElementById("nextCatMonth").addEventListener("click", () => {
   categoryScopeMonth = shiftMonths(categoryScopeMonth, 1);
-  renderCategoryTab();
+  renderBrowseTab();
 });
 document.getElementById("categoryEntriesList").addEventListener("click", (e) => {
   const row = e.target.closest(".entry-row");
@@ -1107,17 +1236,28 @@ document.getElementById("nextMonthInsights").addEventListener("click", () => {
   renderInsightsTab();
 });
 document.getElementById("reviewCategories").addEventListener("click", (e) => {
-  const row = e.target.closest(".rank-row[data-cat]");
+  const row = e.target.closest(".rank-row[data-key]");
   if (!row) return;
+  browseDimension = row.dataset.dim;
   categoryScopeMode = "month";
   categoryScopeMonth = new Date(insightsViewDate);
-  activeCategoryFilter = row.dataset.cat;
+  activeFilterKey = row.dataset.key;
+  switchTab("categories");
+});
+document.getElementById("reviewWho").addEventListener("click", (e) => {
+  const row = e.target.closest(".rank-row[data-key]");
+  if (!row) return;
+  browseDimension = row.dataset.dim;
+  categoryScopeMode = "month";
+  categoryScopeMonth = new Date(insightsViewDate);
+  activeFilterKey = row.dataset.key;
   switchTab("categories");
 });
 
 // Settings
 document.getElementById("settingsBtn").addEventListener("click", () => openSettingsSheet(false));
 document.getElementById("cancelSettingsBtn").addEventListener("click", closeSettingsSheet);
+document.getElementById("settingsSheetCloseX").addEventListener("click", closeSettingsSheet);
 document.getElementById("settingsSheet").addEventListener("submit", handleSettingsSubmit);
 document.getElementById("settingsBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "settingsBackdrop" && settingsComplete()) closeSettingsSheet();
@@ -1136,6 +1276,7 @@ document.getElementById("s_addCategoryBtn").addEventListener("click", () => {
 // Bulk import
 document.getElementById("openImportBtn").addEventListener("click", openImportSheet);
 document.getElementById("cancelImportBtn").addEventListener("click", closeImportSheet);
+document.getElementById("importSheetCloseX").addEventListener("click", closeImportSheet);
 document.getElementById("importSheet").addEventListener("submit", handleImportSubmit);
 document.getElementById("importBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "importBackdrop") closeImportSheet();
