@@ -406,7 +406,7 @@ function renderReceipt(summary, prevSummary) {
       pctOfMax = Math.min(100, pctOfCap);
     }
     return `
-      <div class="cat-row">
+      <div class="cat-row" data-cat="${escapeHtml(cat)}">
         <div class="cat-row-top">
           <span class="cat-name">${escapeHtml(cat)}</span>
           <span class="cat-amount">${moneyFmt.format(amt)}${note}</span>
@@ -644,10 +644,11 @@ async function handleSettingsSubmit(ev) {
 // ---------------------------------------------------------------------------
 // Month in Review
 // ---------------------------------------------------------------------------
-function rankBarRow(rank, label, meta, amount, max, color) {
+function rankBarRow(rank, label, meta, amount, max, color, categoryAttr) {
   const pct = max > 0 ? Math.max(4, (amount / max) * 100) : 4;
+  const dataAttr = categoryAttr ? ` data-cat="${escapeHtml(categoryAttr)}"` : "";
   return `
-    <div class="rank-row">
+    <div class="rank-row"${dataAttr}>
       <span class="rank-num">${rank}.</span>
       <div class="rank-body">
         <div class="rank-top-row">
@@ -714,7 +715,7 @@ function openReviewSheet() {
   } else {
     const maxCat = summary.sortedCategories[0][1];
     catEl.innerHTML = summary.sortedCategories
-      .map(([cat, amt], i) => rankBarRow(i + 1, cat, null, amt, maxCat, getCategoryColor(cat)))
+      .map(([cat, amt], i) => rankBarRow(i + 1, cat, null, amt, maxCat, getCategoryColor(cat), cat))
       .join("");
   }
 
@@ -766,6 +767,104 @@ function openReviewSheet() {
 
 function closeReviewSheet() {
   document.getElementById("reviewBackdrop").hidden = true;
+}
+
+// ---------------------------------------------------------------------------
+// Category browser (all-time, across every month)
+// ---------------------------------------------------------------------------
+function allTimeCategoryTotals() {
+  const totals = {};
+  for (const e of expenses) {
+    const cat = e.why || "Other";
+    totals[cat] = (totals[cat] || 0) + (Number(e.amount) || 0);
+  }
+  return Object.entries(totals).sort((a, b) => b[1] - a[1]);
+}
+
+let activeCategoryFilter = null;
+
+function renderCategoryPickerPills(selectedCat) {
+  const totals = allTimeCategoryTotals();
+  const el = document.getElementById("categoryPickerPills");
+  if (totals.length === 0) {
+    el.innerHTML = `<div class="cat-empty">No expenses logged yet.</div>`;
+    return;
+  }
+  el.innerHTML = totals.map(([cat, amt]) => `
+    <button type="button" class="pill ${cat === selectedCat ? "selected" : ""}" data-cat="${escapeHtml(cat)}">
+      ${escapeHtml(cat)} · ${moneyFmt.format(amt)}
+    </button>
+  `).join("");
+  el.querySelectorAll(".pill").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeCategoryFilter = btn.dataset.cat;
+      renderCategoryPickerPills(activeCategoryFilter);
+      renderCategoryEntries(activeCategoryFilter);
+    });
+  });
+}
+
+function renderCategoryEntries(cat) {
+  const list = expenses
+    .filter((e) => (e.why || "Other") === cat)
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.createdAt || "").localeCompare(a.createdAt || "")));
+
+  const total = list.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+  document.getElementById("categoryStats").innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Total spent</div>
+      <div class="stat-value">${moneyFmt.format(total)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Entries</div>
+      <div class="stat-value">${list.length}</div>
+    </div>
+  `;
+
+  const container = document.getElementById("categoryEntriesList");
+  const emptyState = document.getElementById("categoryEmptyState");
+
+  if (list.length === 0) {
+    container.innerHTML = "";
+    emptyState.hidden = false;
+    return;
+  }
+  emptyState.hidden = true;
+
+  const dateFmt = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+  container.innerHTML = list.map((e) => {
+    const whoDef = WHO_DEFS.find((w) => w.key === e.who) || WHO_DEFS[0];
+    return `
+      <div class="entry-row" data-id="${e.id}">
+        <span class="entry-who-dot" style="background:var(${whoDef.varName})"></span>
+        <div class="entry-main">
+          <div class="entry-where">${escapeHtml(e.where)}</div>
+          <div class="entry-meta">${escapeHtml(e.what)} · ${dateFmt.format(new Date(e.date + "T00:00:00"))}</div>
+        </div>
+        <div class="entry-amount">${moneyFmt.format(Number(e.amount) || 0)}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function openCategoryBrowser(preselectCat) {
+  const totals = allTimeCategoryTotals();
+  const cat = preselectCat || (totals.length > 0 ? totals[0][0] : null);
+  activeCategoryFilter = cat;
+  renderCategoryPickerPills(cat);
+  if (cat) {
+    renderCategoryEntries(cat);
+  } else {
+    document.getElementById("categoryStats").innerHTML = "";
+    document.getElementById("categoryEntriesList").innerHTML = "";
+    document.getElementById("categoryEmptyState").hidden = false;
+  }
+  document.getElementById("categoryBackdrop").hidden = false;
+}
+
+function closeCategoryBrowser() {
+  document.getElementById("categoryBackdrop").hidden = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -891,6 +990,35 @@ document.getElementById("reviewBtn").addEventListener("click", openReviewSheet);
 document.getElementById("closeReviewBtn").addEventListener("click", closeReviewSheet);
 document.getElementById("reviewBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "reviewBackdrop") closeReviewSheet();
+});
+
+document.getElementById("categoryBrowseBtn").addEventListener("click", () => openCategoryBrowser(null));
+document.getElementById("closeCategoryBtn").addEventListener("click", closeCategoryBrowser);
+document.getElementById("categoryBackdrop").addEventListener("click", (e) => {
+  if (e.target.id === "categoryBackdrop") closeCategoryBrowser();
+});
+
+document.getElementById("catBreakdown").addEventListener("click", (e) => {
+  const row = e.target.closest(".cat-row");
+  if (!row) return;
+  openCategoryBrowser(row.dataset.cat);
+});
+
+document.getElementById("reviewCategories").addEventListener("click", (e) => {
+  const row = e.target.closest(".rank-row[data-cat]");
+  if (!row) return;
+  closeReviewSheet();
+  openCategoryBrowser(row.dataset.cat);
+});
+
+document.getElementById("categoryEntriesList").addEventListener("click", (e) => {
+  const row = e.target.closest(".entry-row");
+  if (!row) return;
+  const entry = expenses.find((x) => x.id === row.dataset.id);
+  if (entry) {
+    closeCategoryBrowser();
+    openExpenseSheet(entry);
+  }
 });
 
 document.getElementById("expenseBackdrop").addEventListener("click", (e) => {
