@@ -441,18 +441,15 @@ function renderReceipt(summary, prevSummary) {
   `).join("");
 
   const catBreakdown = document.getElementById("catBreakdown");
-  const moreBtn = document.getElementById("moreCategoriesBtn");
 
   if (summary.sortedCategories.length === 0) {
     catBreakdown.innerHTML = `<div class="cat-empty">No expenses logged this month yet.</div>`;
-    moreBtn.hidden = true;
     return;
   }
 
-  const topCats = summary.sortedCategories.slice(0, 3);
   const max = summary.sortedCategories[0][1] || 1;
 
-  catBreakdown.innerHTML = topCats.map(([cat, amt]) => {
+  catBreakdown.innerHTML = summary.sortedCategories.map(([cat, amt]) => {
     const cap = budgets[cat];
     let barClass = "";
     let note = "";
@@ -476,14 +473,6 @@ function renderReceipt(summary, prevSummary) {
       </div>
     `;
   }).join("");
-
-  const remaining = summary.sortedCategories.length - topCats.length;
-  if (remaining > 0) {
-    moreBtn.hidden = false;
-    moreBtn.textContent = `+${remaining} more categor${remaining === 1 ? "y" : "ies"} → Browse tab`;
-  } else {
-    moreBtn.hidden = true;
-  }
 }
 
 function renderEntries(list) {
@@ -1129,20 +1118,31 @@ async function handleImportSubmit(ev) {
 // ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
+// A missing element (e.g. index.html and app.js briefly out of sync during
+// a deploy) should never take down every listener after it — warn and move on.
+function on(id, event, handler) {
+  const el = document.getElementById(id);
+  if (!el) {
+    console.warn(`Ledger: couldn't wire up #${id} — element not found (HTML/JS may be out of sync).`);
+    return;
+  }
+  el.addEventListener(event, handler);
+}
+
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => switchTab(btn.dataset.tab));
 });
 
-document.getElementById("prevMonth").addEventListener("click", () => {
+on("prevMonth", "click", () => {
   viewDate = shiftMonths(viewDate, -1);
   renderAll();
 });
-document.getElementById("nextMonth").addEventListener("click", () => {
+on("nextMonth", "click", () => {
   viewDate = shiftMonths(viewDate, 1);
   renderAll();
 });
 
-document.getElementById("entrySortPills").addEventListener("click", (e) => {
+on("entrySortPills", "click", (e) => {
   const btn = e.target.closest(".pill");
   if (!btn) return;
   entrySortMode = btn.dataset.sort;
@@ -1152,16 +1152,16 @@ document.getElementById("entrySortPills").addEventListener("click", (e) => {
   renderEntries(entriesForMonth());
 });
 
-document.getElementById("addBtn").addEventListener("click", () => openExpenseSheet(null));
-document.getElementById("cancelSheetBtn").addEventListener("click", closeExpenseSheet);
-document.getElementById("expenseSheetCloseX").addEventListener("click", closeExpenseSheet);
-document.getElementById("expenseSheet").addEventListener("submit", handleExpenseSubmit);
-document.getElementById("deleteEntryBtn").addEventListener("click", handleDeleteEntry);
-document.getElementById("expenseBackdrop").addEventListener("click", (e) => {
+on("addBtn", "click", () => openExpenseSheet(null));
+on("cancelSheetBtn", "click", closeExpenseSheet);
+on("expenseSheetCloseX", "click", closeExpenseSheet);
+on("expenseSheet", "submit", handleExpenseSubmit);
+on("deleteEntryBtn", "click", handleDeleteEntry);
+on("expenseBackdrop", "click", (e) => {
   if (e.target.id === "expenseBackdrop") closeExpenseSheet();
 });
 
-document.getElementById("entriesList").addEventListener("click", (e) => {
+on("entriesList", "click", (e) => {
   const row = e.target.closest(".entry-row");
   if (!row) return;
   const entry = expenses.find((x) => x.id === row.dataset.id);
@@ -1169,7 +1169,7 @@ document.getElementById("entriesList").addEventListener("click", (e) => {
 });
 
 // Home -> Browse tab handoff (category rows)
-document.getElementById("catBreakdown").addEventListener("click", (e) => {
+on("catBreakdown", "click", (e) => {
   const row = e.target.closest(".cat-row");
   if (!row) return;
   browseDimension = "category";
@@ -1178,16 +1178,9 @@ document.getElementById("catBreakdown").addEventListener("click", (e) => {
   activeFilterKey = row.dataset.cat;
   switchTab("categories");
 });
-document.getElementById("moreCategoriesBtn").addEventListener("click", () => {
-  browseDimension = "category";
-  categoryScopeMode = "month";
-  categoryScopeMonth = new Date(viewDate);
-  activeFilterKey = null;
-  switchTab("categories");
-});
 
 // Home -> Browse tab handoff (who pills)
-document.getElementById("whoPills").addEventListener("click", (e) => {
+on("whoPills", "click", (e) => {
   const pill = e.target.closest(".who-pill");
   if (!pill) return;
   browseDimension = "who";
@@ -1198,28 +1191,28 @@ document.getElementById("whoPills").addEventListener("click", (e) => {
 });
 
 // Browse tab controls
-document.getElementById("browseDimensionPills").addEventListener("click", (e) => {
+on("browseDimensionPills", "click", (e) => {
   const btn = e.target.closest(".pill");
   if (!btn) return;
   browseDimension = btn.dataset.dim;
   activeFilterKey = null;
   renderBrowseTab();
 });
-document.getElementById("catScopePills").addEventListener("click", (e) => {
+on("catScopePills", "click", (e) => {
   const btn = e.target.closest(".pill");
   if (!btn) return;
   categoryScopeMode = btn.dataset.scope;
   renderBrowseTab();
 });
-document.getElementById("prevCatMonth").addEventListener("click", () => {
+on("prevCatMonth", "click", () => {
   categoryScopeMonth = shiftMonths(categoryScopeMonth, -1);
   renderBrowseTab();
 });
-document.getElementById("nextCatMonth").addEventListener("click", () => {
+on("nextCatMonth", "click", () => {
   categoryScopeMonth = shiftMonths(categoryScopeMonth, 1);
   renderBrowseTab();
 });
-document.getElementById("categoryEntriesList").addEventListener("click", (e) => {
+on("categoryEntriesList", "click", (e) => {
   const row = e.target.closest(".entry-row");
   if (!row) return;
   const entry = expenses.find((x) => x.id === row.dataset.id);
@@ -1227,15 +1220,15 @@ document.getElementById("categoryEntriesList").addEventListener("click", (e) => 
 });
 
 // Insights tab controls
-document.getElementById("prevMonthInsights").addEventListener("click", () => {
+on("prevMonthInsights", "click", () => {
   insightsViewDate = shiftMonths(insightsViewDate, -1);
   renderInsightsTab();
 });
-document.getElementById("nextMonthInsights").addEventListener("click", () => {
+on("nextMonthInsights", "click", () => {
   insightsViewDate = shiftMonths(insightsViewDate, 1);
   renderInsightsTab();
 });
-document.getElementById("reviewCategories").addEventListener("click", (e) => {
+on("reviewCategories", "click", (e) => {
   const row = e.target.closest(".rank-row[data-key]");
   if (!row) return;
   browseDimension = row.dataset.dim;
@@ -1244,7 +1237,7 @@ document.getElementById("reviewCategories").addEventListener("click", (e) => {
   activeFilterKey = row.dataset.key;
   switchTab("categories");
 });
-document.getElementById("reviewWho").addEventListener("click", (e) => {
+on("reviewWho", "click", (e) => {
   const row = e.target.closest(".rank-row[data-key]");
   if (!row) return;
   browseDimension = row.dataset.dim;
@@ -1255,14 +1248,14 @@ document.getElementById("reviewWho").addEventListener("click", (e) => {
 });
 
 // Settings
-document.getElementById("settingsBtn").addEventListener("click", () => openSettingsSheet(false));
-document.getElementById("cancelSettingsBtn").addEventListener("click", closeSettingsSheet);
-document.getElementById("settingsSheetCloseX").addEventListener("click", closeSettingsSheet);
-document.getElementById("settingsSheet").addEventListener("submit", handleSettingsSubmit);
-document.getElementById("settingsBackdrop").addEventListener("click", (e) => {
+on("settingsBtn", "click", () => openSettingsSheet(false));
+on("cancelSettingsBtn", "click", closeSettingsSheet);
+on("settingsSheetCloseX", "click", closeSettingsSheet);
+on("settingsSheet", "submit", handleSettingsSubmit);
+on("settingsBackdrop", "click", (e) => {
   if (e.target.id === "settingsBackdrop" && settingsComplete()) closeSettingsSheet();
 });
-document.getElementById("s_addCategoryBtn").addEventListener("click", () => {
+on("s_addCategoryBtn", "click", () => {
   const input = document.getElementById("s_newCategory");
   const val = input.value.trim();
   if (val && !categories.includes(val)) {
@@ -1274,11 +1267,11 @@ document.getElementById("s_addCategoryBtn").addEventListener("click", () => {
 });
 
 // Bulk import
-document.getElementById("openImportBtn").addEventListener("click", openImportSheet);
-document.getElementById("cancelImportBtn").addEventListener("click", closeImportSheet);
-document.getElementById("importSheetCloseX").addEventListener("click", closeImportSheet);
-document.getElementById("importSheet").addEventListener("submit", handleImportSubmit);
-document.getElementById("importBackdrop").addEventListener("click", (e) => {
+on("openImportBtn", "click", openImportSheet);
+on("cancelImportBtn", "click", closeImportSheet);
+on("importSheetCloseX", "click", closeImportSheet);
+on("importSheet", "submit", handleImportSubmit);
+on("importBackdrop", "click", (e) => {
   if (e.target.id === "importBackdrop") closeImportSheet();
 });
 
