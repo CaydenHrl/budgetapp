@@ -19,6 +19,39 @@
 </head>
 <body>
 
+  <script>
+    function showFatalError(msg) {
+      var el = document.getElementById("fatalError");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "fatalError";
+        el.style.position = "fixed";
+        el.style.top = "0";
+        el.style.left = "0";
+        el.style.right = "0";
+        el.style.zIndex = "9999";
+        el.style.background = "#C1554A";
+        el.style.color = "#fff";
+        el.style.fontFamily = "monospace";
+        el.style.fontSize = "12px";
+        el.style.padding = "10px";
+        el.style.whiteSpace = "pre-wrap";
+        el.style.wordBreak = "break-word";
+        el.style.maxHeight = "40vh";
+        el.style.overflowY = "auto";
+        document.body.appendChild(el);
+      }
+      el.textContent += (el.textContent ? "\n---\n" : "") + msg;
+    }
+    window.addEventListener("error", function (e) {
+      showFatalError((e.message || "Script error") + "\nat " + (e.filename || "?") + ":" + (e.lineno || "?"));
+    });
+    window.addEventListener("unhandledrejection", function (e) {
+      var reason = e.reason;
+      showFatalError("Promise error: " + (reason && reason.message ? reason.message : String(reason)));
+    });
+  </script>
+
   <!-- Top bar -->
   <header class="topbar">
     <div class="topbar-title">Our&nbsp;Ledger</div>
@@ -30,54 +63,125 @@
     <!-- Sync status line -->
     <div id="statusLine" class="status-line" hidden></div>
 
-    <!-- ===== Totals panel (receipt tape) ===== -->
-    <section class="receipt" id="receiptPanel">
-      <div class="month-nav">
-        <button class="nav-arrow" id="prevMonth" aria-label="Previous month">‹</button>
-        <button class="month-label" id="monthLabel">This Month</button>
-        <button class="nav-arrow" id="nextMonth" aria-label="Next month">›</button>
-      </div>
+    <!-- ======================================================= -->
+    <!-- HOME TAB -->
+    <!-- ======================================================= -->
+    <section class="view" id="view-home">
 
-      <div class="grand-total-wrap">
-        <div class="grand-total-label">Total Spent</div>
-        <div class="grand-total" id="grandTotal">$0.00</div>
-        <div class="delta-line" id="deltaLine"></div>
-      </div>
+      <section class="receipt" id="receiptPanel">
+        <div class="month-nav">
+          <button class="nav-arrow" id="prevMonth" aria-label="Previous month">‹</button>
+          <button class="month-label" id="monthLabel">This Month</button>
+          <button class="nav-arrow" id="nextMonth" aria-label="Next month">›</button>
+        </div>
 
-      <div class="who-pills" id="whoPills">
-        <!-- filled by JS -->
-      </div>
+        <div class="grand-total-wrap">
+          <div class="grand-total-label">Total Spent</div>
+          <div class="grand-total" id="grandTotal">$0.00</div>
+          <div class="delta-line" id="deltaLine"></div>
+        </div>
 
-      <div class="tear"></div>
+        <div class="who-pills" id="whoPills"></div>
 
-      <div class="donut-row">
-        <div class="donut-wrap">
-          <div class="donut" id="donutChart"></div>
-          <div class="donut-hole">
-            <div class="donut-hole-label">Top</div>
-            <div class="donut-hole-value" id="donutTopCat">—</div>
+        <div class="tear"></div>
+
+        <div class="donut-row">
+          <div class="donut-wrap">
+            <div class="donut" id="donutChart"></div>
+            <div class="donut-hole">
+              <div class="donut-hole-label">Top</div>
+              <div class="donut-hole-value" id="donutTopCat">—</div>
+            </div>
+          </div>
+          <div class="donut-legend" id="donutLegend"></div>
+        </div>
+
+        <div class="cat-breakdown" id="catBreakdown"></div>
+        <button type="button" class="review-link" id="moreCategoriesBtn" hidden></button>
+      </section>
+
+      <section class="entries" id="entriesSection">
+        <div class="entries-header-row">
+          <h2 class="entries-heading">Entries</h2>
+          <div class="pill-group" id="entrySortPills">
+            <button type="button" class="pill selected" data-sort="date">Date</button>
+            <button type="button" class="pill" data-sort="category">Category</button>
+            <button type="button" class="pill" data-sort="price">Price</button>
           </div>
         </div>
-        <div class="donut-legend" id="donutLegend"></div>
-      </div>
+        <div id="entriesList" class="entries-list"></div>
+        <div id="emptyState" class="empty-state" hidden>
+          Nothing logged for this month yet.<br />Tap + to add the first one.
+        </div>
+      </section>
 
-      <div class="cat-breakdown" id="catBreakdown">
-        <!-- filled by JS: receipt-style itemized lines -->
-      </div>
-
-      <button type="button" class="review-link" id="reviewBtn">Month in Review →</button>
-      <button type="button" class="review-link" id="categoryBrowseBtn">Browse by Category →</button>
     </section>
 
-    <!-- ===== Entries list ===== -->
-    <section class="entries" id="entriesSection">
-      <h2 class="entries-heading">Entries</h2>
-      <div id="entriesList" class="entries-list">
-        <!-- filled by JS -->
+    <!-- ======================================================= -->
+    <!-- BROWSE TAB (categories or who, all-time or by month) -->
+    <!-- ======================================================= -->
+    <section class="view" id="view-categories" hidden>
+
+      <div class="tab-view-header">
+        <h2 class="tab-view-title">Browse</h2>
       </div>
-      <div id="emptyState" class="empty-state" hidden>
-        Nothing logged for this month yet.<br />Tap + to add the first one.
+
+      <div class="pill-group browse-controls" id="browseDimensionPills">
+        <button type="button" class="pill selected" data-dim="category">By Category</button>
+        <button type="button" class="pill" data-dim="who">By Who</button>
       </div>
+
+      <div class="pill-group browse-controls" id="catScopePills">
+        <button type="button" class="pill selected" data-scope="all">All Time</button>
+        <button type="button" class="pill" data-scope="month">By Month</button>
+      </div>
+
+      <div class="month-nav" id="catMonthNav" hidden>
+        <button class="nav-arrow" id="prevCatMonth" aria-label="Previous month">‹</button>
+        <button class="month-label" id="catMonthLabel">This Month</button>
+        <button class="nav-arrow" id="nextCatMonth" aria-label="Next month">›</button>
+      </div>
+
+      <div class="pill-group chips" id="categoryPickerPills"></div>
+
+      <div class="stat-grid" id="categoryStats"></div>
+
+      <div class="entries-list" id="categoryEntriesList"></div>
+      <div id="categoryEmptyState" class="empty-state" hidden>
+        No expenses logged here yet.
+      </div>
+
+    </section>
+
+    <!-- ======================================================= -->
+    <!-- INSIGHTS TAB -->
+    <!-- ======================================================= -->
+    <section class="view" id="view-insights" hidden>
+
+      <div class="tab-view-header">
+        <h2 class="tab-view-title" id="reviewTitle">Month in Review</h2>
+      </div>
+
+      <div class="month-nav">
+        <button class="nav-arrow" id="prevMonthInsights" aria-label="Previous month">‹</button>
+        <button class="month-label" id="insightsMonthLabel">This Month</button>
+        <button class="nav-arrow" id="nextMonthInsights" aria-label="Next month">›</button>
+      </div>
+
+      <div class="stat-grid" id="reviewStats"></div>
+
+      <h3 class="review-section-title">Categories</h3>
+      <div class="rank-list" id="reviewCategories"></div>
+
+      <h3 class="review-section-title">Biggest single purchases</h3>
+      <div class="rank-list" id="reviewPurchases"></div>
+
+      <h3 class="review-section-title">Who paid the most</h3>
+      <div class="rank-list" id="reviewWho"></div>
+
+      <h3 class="review-section-title">Last 6 months</h3>
+      <div class="trend-chart" id="reviewTrend"></div>
+
     </section>
 
   </main>
@@ -85,15 +189,25 @@
   <!-- Floating add button -->
   <button id="addBtn" class="fab" aria-label="Add expense">+</button>
 
+  <!-- Bottom tab bar -->
+  <nav class="tabbar">
+    <button class="tab-btn selected" id="tabHomeBtn" data-tab="home">Home</button>
+    <button class="tab-btn" id="tabCategoriesBtn" data-tab="categories">Browse</button>
+    <button class="tab-btn" id="tabInsightsBtn" data-tab="insights">Insights</button>
+  </nav>
+
   <!-- ===== Add / Edit Expense Sheet ===== -->
   <div class="sheet-backdrop" id="expenseBackdrop" hidden>
     <form class="sheet" id="expenseSheet">
-      <div class="sheet-handle"></div>
+      <div class="sheet-topbar">
+        <div class="sheet-handle"></div>
+        <button type="button" class="sheet-x" id="expenseSheetCloseX" aria-label="Close">✕</button>
+      </div>
       <h2 id="expenseSheetTitle">Log an expense</h2>
 
       <label class="field">
-        <span>When</span>
-        <input type="date" id="f_date" required />
+        <span>What</span>
+        <input type="text" id="f_what" placeholder="What was it for?" required />
       </label>
 
       <label class="field">
@@ -102,8 +216,8 @@
       </label>
 
       <label class="field">
-        <span>What</span>
-        <input type="text" id="f_what" placeholder="What was it for?" required />
+        <span>When</span>
+        <input type="date" id="f_date" required />
       </label>
 
       <label class="field">
@@ -132,7 +246,10 @@
   <!-- ===== Settings Sheet ===== -->
   <div class="sheet-backdrop" id="settingsBackdrop" hidden>
     <form class="sheet sheet-tall" id="settingsSheet">
-      <div class="sheet-handle"></div>
+      <div class="sheet-topbar">
+        <div class="sheet-handle"></div>
+        <button type="button" class="sheet-x" id="settingsSheetCloseX" aria-label="Close">✕</button>
+      </div>
       <h2>Settings</h2>
 
       <p class="sheet-note">
@@ -193,44 +310,27 @@
     </form>
   </div>
 
-  <!-- ===== Category Browser Sheet ===== -->
-  <div class="sheet-backdrop" id="categoryBackdrop" hidden>
-    <div class="sheet sheet-tall" id="categorySheet">
-      <div class="sheet-handle"></div>
-      <h2>Browse by Category</h2>
-
-      <div class="pill-group chips" id="categoryPickerPills"></div>
-
-      <div class="stat-grid" id="categoryStats"></div>
-
-      <div class="entries-list" id="categoryEntriesList"></div>
-      <div id="categoryEmptyState" class="empty-state" hidden>
-        No expenses logged in this category yet.
-      </div>
-
-      <div class="sheet-actions">
-        <button type="button" class="btn-solid" id="closeCategoryBtn" style="flex:1;">Close</button>
-      </div>
-    </div>
-  </div>
-
   <!-- ===== Bulk Import Sheet ===== -->
   <div class="sheet-backdrop" id="importBackdrop" hidden>
     <form class="sheet sheet-tall" id="importSheet">
-      <div class="sheet-handle"></div>
+      <div class="sheet-topbar">
+        <div class="sheet-handle"></div>
+        <button type="button" class="sheet-x" id="importSheetCloseX" aria-label="Close">✕</button>
+      </div>
       <h2>Bulk import past expenses</h2>
 
       <p class="sheet-note">
         One expense per line, fields separated by a pipe ( <code>|</code> ):<br />
         <code>date|where|what|who|why|amount</code><br />
-        Example: <code>2026-03-14|Publix|Groceries run|joint|Groceries|84.21</code><br /><br />
+        <code>who</code> is one of: necessities, extras, cayden, kenzie.<br />
+        Example: <code>2026-03-14|Publix|Groceries run|necessities|Groceries|84.21</code><br /><br />
         Ask Claude to convert your past transactions (bank export, spreadsheet, screenshot,
         whatever you've got) into this layout, then paste the result below.
       </p>
 
       <label class="field">
         <span>Paste your transactions</span>
-        <textarea id="i_text" rows="10" placeholder="2026-03-14|Publix|Groceries run|joint|Groceries|84.21"></textarea>
+        <textarea id="i_text" rows="10" placeholder="2026-03-14|Publix|Groceries run|necessities|Groceries|84.21"></textarea>
       </label>
 
       <div id="importResult" class="sheet-note" hidden></div>
@@ -240,32 +340,6 @@
         <button type="submit" class="btn-solid" id="runImportBtn">Import</button>
       </div>
     </form>
-  </div>
-
-  <!-- ===== Month in Review Sheet ===== -->
-  <div class="sheet-backdrop" id="reviewBackdrop" hidden>
-    <div class="sheet sheet-tall" id="reviewSheet">
-      <div class="sheet-handle"></div>
-      <h2 id="reviewTitle">Month in Review</h2>
-
-      <div class="stat-grid" id="reviewStats"></div>
-
-      <h3 class="review-section-title">Categories</h3>
-      <div class="rank-list" id="reviewCategories"></div>
-
-      <h3 class="review-section-title">Biggest single purchases</h3>
-      <div class="rank-list" id="reviewPurchases"></div>
-
-      <h3 class="review-section-title">Who paid the most</h3>
-      <div class="rank-list" id="reviewWho"></div>
-
-      <h3 class="review-section-title">Last 6 months</h3>
-      <div class="trend-chart" id="reviewTrend"></div>
-
-      <div class="sheet-actions">
-        <button type="button" class="btn-solid" id="closeReviewBtn" style="flex:1;">Close</button>
-      </div>
-    </div>
   </div>
 
   <script src="app.js"></script>
