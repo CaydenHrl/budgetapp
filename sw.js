@@ -1,6 +1,6 @@
 // Minimal app-shell cache. Data calls to the GitHub API always go to the
 // network (never cached) so you always see live numbers when you have signal.
-const CACHE_NAME = "ledger-shell-v5";
+const CACHE_NAME = "ledger-shell-v6";
 const SHELL_FILES = [
   "./index.html",
   "./style.css",
@@ -12,7 +12,15 @@ const SHELL_FILES = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(
+        SHELL_FILES.map((file) =>
+          cache.add(file).catch((err) => {
+            console.warn("Service worker: couldn't cache", file, err);
+          })
+        )
+      )
+    )
   );
   self.skipWaiting();
 });
