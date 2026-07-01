@@ -47,6 +47,12 @@ let editingEntryId = null;
 let selectedWho = settings.defaultWho || "joint";
 let selectedWhy = null;
 
+let activeTab = "home";
+let activeCategoryFilter = null;
+let categoryScopeMode = "all"; // "all" | "month"
+let categoryScopeMonth = startOfMonth(new Date());
+let insightsViewDate = startOfMonth(new Date());
+
 const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const monthFmt = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" });
 
@@ -300,8 +306,27 @@ function computeMonthSummary(list) {
   return { grandTotal, byWho, sortedCategories };
 }
 
+function allCategoryNames() {
+  const set = new Set(categories);
+  expenses.forEach((e) => set.add(e.why || "Other"));
+  return Array.from(set);
+}
+
+function allTimeMonthsTracked() {
+  const set = new Set();
+  expenses.forEach((e) => { if (e.date) set.add(e.date.slice(0, 7)); });
+  return Math.max(1, set.size);
+}
+
+function avgPerMonthForCategory(cat) {
+  const total = expenses
+    .filter((e) => (e.why || "Other") === cat)
+    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  return total / allTimeMonthsTracked();
+}
+
 // ---------------------------------------------------------------------------
-// Rendering
+// Rendering — top level
 // ---------------------------------------------------------------------------
 function renderAll() {
   document.getElementById("monthLabel").textContent = monthFmt.format(viewDate);
@@ -313,8 +338,27 @@ function renderAll() {
 
   renderReceipt(summary, prevSummary);
   renderEntries(list);
+
+  if (activeTab === "categories") renderCategoryTab();
+  if (activeTab === "insights") renderInsightsTab();
 }
 
+function switchTab(tabName) {
+  activeTab = tabName;
+  document.getElementById("view-home").hidden = tabName !== "home";
+  document.getElementById("view-categories").hidden = tabName !== "categories";
+  document.getElementById("view-insights").hidden = tabName !== "insights";
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.classList.toggle("selected", btn.dataset.tab === tabName);
+  });
+  if (tabName === "categories") renderCategoryTab();
+  if (tabName === "insights") renderInsightsTab();
+  window.scrollTo(0, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Home tab rendering
+// ---------------------------------------------------------------------------
 function renderDeltaLine(summary, prevSummary) {
   const el = document.getElementById("deltaLine");
   if (prevSummary.grandTotal <= 0) {
@@ -388,12 +432,18 @@ function renderReceipt(summary, prevSummary) {
   `).join("");
 
   const catBreakdown = document.getElementById("catBreakdown");
+  const moreBtn = document.getElementById("moreCategoriesBtn");
+
   if (summary.sortedCategories.length === 0) {
     catBreakdown.innerHTML = `<div class="cat-empty">No expenses logged this month yet.</div>`;
+    moreBtn.hidden = true;
     return;
   }
+
+  const topCats = summary.sortedCategories.slice(0, 3);
   const max = summary.sortedCategories[0][1] || 1;
-  catBreakdown.innerHTML = summary.sortedCategories.map(([cat, amt]) => {
+
+  catBreakdown.innerHTML = topCats.map(([cat, amt]) => {
     const cap = budgets[cat];
     let barClass = "";
     let note = "";
@@ -417,6 +467,14 @@ function renderReceipt(summary, prevSummary) {
       </div>
     `;
   }).join("");
+
+  const remaining = summary.sortedCategories.length - topCats.length;
+  if (remaining > 0) {
+    moreBtn.hidden = false;
+    moreBtn.textContent = `+${remaining} more categor${remaining === 1 ? "y" : "ies"} → Categories tab`;
+  } else {
+    moreBtn.hidden = true;
+  }
 }
 
 function renderEntries(list) {
@@ -642,7 +700,7 @@ async function handleSettingsSubmit(ev) {
 }
 
 // ---------------------------------------------------------------------------
-// Month in Review
+// Shared rank-row builder
 // ---------------------------------------------------------------------------
 function rankBarRow(rank, label, meta, amount, max, color, categoryAttr) {
   const pct = max > 0 ? Math.max(4, (amount / max) * 100) : 4;
@@ -663,16 +721,19 @@ function rankBarRow(rank, label, meta, amount, max, color, categoryAttr) {
   `;
 }
 
-function openReviewSheet() {
-  const list = entriesForMonth();
+// ---------------------------------------------------------------------------
+// Insights tab (per-month deep dive; has its own month nav)
+// ---------------------------------------------------------------------------
+function renderInsightsTab() {
+  const list = entriesForMonthDate(insightsViewDate);
   const summary = computeMonthSummary(list);
-  const prevList = entriesForMonthDate(shiftMonths(viewDate, -1));
+  const prevList = entriesForMonthDate(shiftMonths(insightsViewDate, -1));
   const prevSummary = computeMonthSummary(prevList);
 
-  document.getElementById("reviewTitle").textContent = `${monthFmt.format(viewDate)} in Review`;
+  document.getElementById("reviewTitle").textContent = "Month in Review";
+  document.getElementById("insightsMonthLabel").textContent = monthFmt.format(insightsViewDate);
 
-  // --- stats grid ---
-  const days = daysInMonth(viewDate);
+  const days = daysInMonth(insightsViewDate);
   const avgPerDay = summary.grandTotal / days;
   const merchantTotals = {};
   list.forEach((e) => { merchantTotals[e.where] = (merchantTotals[e.where] || 0) + (Number(e.amount) || 0); });
@@ -708,7 +769,6 @@ function openReviewSheet() {
     </div>
   `;
 
-  // --- categories ranked ---
   const catEl = document.getElementById("reviewCategories");
   if (summary.sortedCategories.length === 0) {
     catEl.innerHTML = `<div class="cat-empty">Nothing logged this month.</div>`;
@@ -719,7 +779,6 @@ function openReviewSheet() {
       .join("");
   }
 
-  // --- top single purchases ---
   const purchasesEl = document.getElementById("reviewPurchases");
   const topPurchases = [...list].sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0)).slice(0, 5);
   if (topPurchases.length === 0) {
@@ -735,7 +794,6 @@ function openReviewSheet() {
       .join("");
   }
 
-  // --- who paid the most ---
   const whoEl = document.getElementById("reviewWho");
   const whoRanked = WHO_DEFS.map((w) => ({ ...w, amount: summary.byWho[w.key] || 0 }))
     .sort((a, b) => b.amount - a.amount);
@@ -744,15 +802,14 @@ function openReviewSheet() {
     .map((w, i) => rankBarRow(i + 1, w.label, null, w.amount, maxWho, `var(${w.varName})`))
     .join("");
 
-  // --- 6 month trend ---
   const trendEl = document.getElementById("reviewTrend");
   const months = [];
-  for (let i = 5; i >= 0; i--) months.push(shiftMonths(viewDate, -i));
+  for (let i = 5; i >= 0; i--) months.push(shiftMonths(insightsViewDate, -i));
   const totals = months.map((m) => computeMonthSummary(entriesForMonthDate(m)).grandTotal);
   const maxTrend = Math.max(...totals, 1);
   const trendLabelFmt = new Intl.DateTimeFormat("en-US", { month: "short" });
   trendEl.innerHTML = months.map((m, i) => {
-    const isCurrent = m.getFullYear() === viewDate.getFullYear() && m.getMonth() === viewDate.getMonth();
+    const isCurrent = m.getFullYear() === insightsViewDate.getFullYear() && m.getMonth() === insightsViewDate.getMonth();
     const h = Math.max(4, (totals[i] / maxTrend) * 100);
     return `
       <div class="trend-col">
@@ -761,33 +818,26 @@ function openReviewSheet() {
       </div>
     `;
   }).join("");
-
-  document.getElementById("reviewBackdrop").hidden = false;
-}
-
-function closeReviewSheet() {
-  document.getElementById("reviewBackdrop").hidden = true;
 }
 
 // ---------------------------------------------------------------------------
-// Category browser (all-time, across every month)
+// Categories tab (all-time or month-scoped browsing, with monthly average)
 // ---------------------------------------------------------------------------
-function allTimeCategoryTotals() {
+function computeCategoryTotalsForScope() {
+  const list = categoryScopeMode === "month" ? entriesForMonthDate(categoryScopeMonth) : expenses;
   const totals = {};
-  for (const e of expenses) {
+  allCategoryNames().forEach((c) => { totals[c] = 0; });
+  for (const e of list) {
     const cat = e.why || "Other";
     totals[cat] = (totals[cat] || 0) + (Number(e.amount) || 0);
   }
   return Object.entries(totals).sort((a, b) => b[1] - a[1]);
 }
 
-let activeCategoryFilter = null;
-
-function renderCategoryPickerPills(selectedCat) {
-  const totals = allTimeCategoryTotals();
+function renderCategoryPickerPillsScoped(totals, selectedCat) {
   const el = document.getElementById("categoryPickerPills");
   if (totals.length === 0) {
-    el.innerHTML = `<div class="cat-empty">No expenses logged yet.</div>`;
+    el.innerHTML = `<div class="cat-empty">No categories yet — add some in Settings.</div>`;
     return;
   }
   el.innerHTML = totals.map(([cat, amt]) => `
@@ -798,26 +848,32 @@ function renderCategoryPickerPills(selectedCat) {
   el.querySelectorAll(".pill").forEach((btn) => {
     btn.addEventListener("click", () => {
       activeCategoryFilter = btn.dataset.cat;
-      renderCategoryPickerPills(activeCategoryFilter);
-      renderCategoryEntries(activeCategoryFilter);
+      renderCategoryTab();
     });
   });
 }
 
-function renderCategoryEntries(cat) {
-  const list = expenses
+function renderCategoryEntriesScoped(cat) {
+  const scopedList = categoryScopeMode === "month" ? entriesForMonthDate(categoryScopeMonth) : expenses;
+  const list = scopedList
     .filter((e) => (e.why || "Other") === cat)
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.createdAt || "").localeCompare(a.createdAt || "")));
 
   const total = list.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const avg = avgPerMonthForCategory(cat);
+  const scopeLabel = categoryScopeMode === "month" ? monthFmt.format(categoryScopeMonth) : "All Time";
 
   document.getElementById("categoryStats").innerHTML = `
     <div class="stat-card">
-      <div class="stat-label">Total spent</div>
+      <div class="stat-label">Total — ${escapeHtml(scopeLabel)}</div>
       <div class="stat-value">${moneyFmt.format(total)}</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Entries</div>
+      <div class="stat-label">Avg / Month (all time)</div>
+      <div class="stat-value">${moneyFmt.format(avg)}</div>
+    </div>
+    <div class="stat-card wide">
+      <div class="stat-label">Entries — ${escapeHtml(scopeLabel)}</div>
       <div class="stat-value">${list.length}</div>
     </div>
   `;
@@ -848,23 +904,27 @@ function renderCategoryEntries(cat) {
   }).join("");
 }
 
-function openCategoryBrowser(preselectCat) {
-  const totals = allTimeCategoryTotals();
-  const cat = preselectCat || (totals.length > 0 ? totals[0][0] : null);
-  activeCategoryFilter = cat;
-  renderCategoryPickerPills(cat);
-  if (cat) {
-    renderCategoryEntries(cat);
+function renderCategoryTab() {
+  document.getElementById("catMonthNav").hidden = categoryScopeMode !== "month";
+  document.getElementById("catMonthLabel").textContent = monthFmt.format(categoryScopeMonth);
+  document.querySelectorAll("#catScopePills .pill").forEach((p) => {
+    p.classList.toggle("selected", p.dataset.scope === categoryScopeMode);
+  });
+
+  const totals = computeCategoryTotalsForScope();
+  if (!activeCategoryFilter && totals.length > 0) {
+    activeCategoryFilter = totals[0][0];
+  }
+
+  renderCategoryPickerPillsScoped(totals, activeCategoryFilter);
+
+  if (activeCategoryFilter) {
+    renderCategoryEntriesScoped(activeCategoryFilter);
   } else {
     document.getElementById("categoryStats").innerHTML = "";
     document.getElementById("categoryEntriesList").innerHTML = "";
     document.getElementById("categoryEmptyState").hidden = false;
   }
-  document.getElementById("categoryBackdrop").hidden = false;
-}
-
-function closeCategoryBrowser() {
-  document.getElementById("categoryBackdrop").hidden = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -971,13 +1031,16 @@ async function handleImportSubmit(ev) {
 // ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
-document.getElementById("prevMonth").addEventListener("click", () => {
-  viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1);
-  renderAll();
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => switchTab(btn.dataset.tab));
 });
 
+document.getElementById("prevMonth").addEventListener("click", () => {
+  viewDate = shiftMonths(viewDate, -1);
+  renderAll();
+});
 document.getElementById("nextMonth").addEventListener("click", () => {
-  viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1);
+  viewDate = shiftMonths(viewDate, 1);
   renderAll();
 });
 
@@ -985,42 +1048,6 @@ document.getElementById("addBtn").addEventListener("click", () => openExpenseShe
 document.getElementById("cancelSheetBtn").addEventListener("click", closeExpenseSheet);
 document.getElementById("expenseSheet").addEventListener("submit", handleExpenseSubmit);
 document.getElementById("deleteEntryBtn").addEventListener("click", handleDeleteEntry);
-
-document.getElementById("reviewBtn").addEventListener("click", openReviewSheet);
-document.getElementById("closeReviewBtn").addEventListener("click", closeReviewSheet);
-document.getElementById("reviewBackdrop").addEventListener("click", (e) => {
-  if (e.target.id === "reviewBackdrop") closeReviewSheet();
-});
-
-document.getElementById("categoryBrowseBtn").addEventListener("click", () => openCategoryBrowser(null));
-document.getElementById("closeCategoryBtn").addEventListener("click", closeCategoryBrowser);
-document.getElementById("categoryBackdrop").addEventListener("click", (e) => {
-  if (e.target.id === "categoryBackdrop") closeCategoryBrowser();
-});
-
-document.getElementById("catBreakdown").addEventListener("click", (e) => {
-  const row = e.target.closest(".cat-row");
-  if (!row) return;
-  openCategoryBrowser(row.dataset.cat);
-});
-
-document.getElementById("reviewCategories").addEventListener("click", (e) => {
-  const row = e.target.closest(".rank-row[data-cat]");
-  if (!row) return;
-  closeReviewSheet();
-  openCategoryBrowser(row.dataset.cat);
-});
-
-document.getElementById("categoryEntriesList").addEventListener("click", (e) => {
-  const row = e.target.closest(".entry-row");
-  if (!row) return;
-  const entry = expenses.find((x) => x.id === row.dataset.id);
-  if (entry) {
-    closeCategoryBrowser();
-    openExpenseSheet(entry);
-  }
-});
-
 document.getElementById("expenseBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "expenseBackdrop") closeExpenseSheet();
 });
@@ -1032,13 +1059,69 @@ document.getElementById("entriesList").addEventListener("click", (e) => {
   if (entry) openExpenseSheet(entry);
 });
 
+// Home -> Categories tab handoff
+document.getElementById("catBreakdown").addEventListener("click", (e) => {
+  const row = e.target.closest(".cat-row");
+  if (!row) return;
+  categoryScopeMode = "month";
+  categoryScopeMonth = new Date(viewDate);
+  activeCategoryFilter = row.dataset.cat;
+  switchTab("categories");
+});
+document.getElementById("moreCategoriesBtn").addEventListener("click", () => {
+  categoryScopeMode = "month";
+  categoryScopeMonth = new Date(viewDate);
+  activeCategoryFilter = null;
+  switchTab("categories");
+});
+
+// Categories tab controls
+document.getElementById("catScopePills").addEventListener("click", (e) => {
+  const btn = e.target.closest(".pill");
+  if (!btn) return;
+  categoryScopeMode = btn.dataset.scope;
+  renderCategoryTab();
+});
+document.getElementById("prevCatMonth").addEventListener("click", () => {
+  categoryScopeMonth = shiftMonths(categoryScopeMonth, -1);
+  renderCategoryTab();
+});
+document.getElementById("nextCatMonth").addEventListener("click", () => {
+  categoryScopeMonth = shiftMonths(categoryScopeMonth, 1);
+  renderCategoryTab();
+});
+document.getElementById("categoryEntriesList").addEventListener("click", (e) => {
+  const row = e.target.closest(".entry-row");
+  if (!row) return;
+  const entry = expenses.find((x) => x.id === row.dataset.id);
+  if (entry) openExpenseSheet(entry);
+});
+
+// Insights tab controls
+document.getElementById("prevMonthInsights").addEventListener("click", () => {
+  insightsViewDate = shiftMonths(insightsViewDate, -1);
+  renderInsightsTab();
+});
+document.getElementById("nextMonthInsights").addEventListener("click", () => {
+  insightsViewDate = shiftMonths(insightsViewDate, 1);
+  renderInsightsTab();
+});
+document.getElementById("reviewCategories").addEventListener("click", (e) => {
+  const row = e.target.closest(".rank-row[data-cat]");
+  if (!row) return;
+  categoryScopeMode = "month";
+  categoryScopeMonth = new Date(insightsViewDate);
+  activeCategoryFilter = row.dataset.cat;
+  switchTab("categories");
+});
+
+// Settings
 document.getElementById("settingsBtn").addEventListener("click", () => openSettingsSheet(false));
 document.getElementById("cancelSettingsBtn").addEventListener("click", closeSettingsSheet);
 document.getElementById("settingsSheet").addEventListener("submit", handleSettingsSubmit);
 document.getElementById("settingsBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "settingsBackdrop" && settingsComplete()) closeSettingsSheet();
 });
-
 document.getElementById("s_addCategoryBtn").addEventListener("click", () => {
   const input = document.getElementById("s_newCategory");
   const val = input.value.trim();
@@ -1050,6 +1133,7 @@ document.getElementById("s_addCategoryBtn").addEventListener("click", () => {
   input.value = "";
 });
 
+// Bulk import
 document.getElementById("openImportBtn").addEventListener("click", openImportSheet);
 document.getElementById("cancelImportBtn").addEventListener("click", closeImportSheet);
 document.getElementById("importSheet").addEventListener("submit", handleImportSubmit);
