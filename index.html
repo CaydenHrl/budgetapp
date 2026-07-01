@@ -30,60 +30,125 @@
     <!-- Sync status line -->
     <div id="statusLine" class="status-line" hidden></div>
 
-    <!-- ===== Totals panel (receipt tape) ===== -->
-    <section class="receipt" id="receiptPanel">
-      <div class="month-nav">
-        <button class="nav-arrow" id="prevMonth" aria-label="Previous month">‹</button>
-        <button class="month-label" id="monthLabel">This Month</button>
-        <button class="nav-arrow" id="nextMonth" aria-label="Next month">›</button>
-      </div>
+    <!-- ======================================================= -->
+    <!-- HOME TAB -->
+    <!-- ======================================================= -->
+    <section class="view" id="view-home">
 
-      <div class="grand-total-wrap">
-        <div class="grand-total-label">Total Spent</div>
-        <div class="grand-total" id="grandTotal">$0.00</div>
-        <div class="delta-line" id="deltaLine"></div>
-      </div>
-
-      <div class="who-pills" id="whoPills">
-        <!-- filled by JS -->
-      </div>
-
-      <div class="tear"></div>
-
-      <div class="donut-row">
-        <div class="donut-wrap">
-          <div class="donut" id="donutChart"></div>
-          <div class="donut-hole">
-            <div class="donut-hole-label">Top</div>
-            <div class="donut-hole-value" id="donutTopCat">—</div>
-          </div>
+      <section class="receipt" id="receiptPanel">
+        <div class="month-nav">
+          <button class="nav-arrow" id="prevMonth" aria-label="Previous month">‹</button>
+          <button class="month-label" id="monthLabel">This Month</button>
+          <button class="nav-arrow" id="nextMonth" aria-label="Next month">›</button>
         </div>
-        <div class="donut-legend" id="donutLegend"></div>
-      </div>
 
-      <div class="cat-breakdown" id="catBreakdown">
-        <!-- filled by JS: receipt-style itemized lines -->
-      </div>
+        <div class="grand-total-wrap">
+          <div class="grand-total-label">Total Spent</div>
+          <div class="grand-total" id="grandTotal">$0.00</div>
+          <div class="delta-line" id="deltaLine"></div>
+        </div>
 
-      <button type="button" class="review-link" id="reviewBtn">Month in Review →</button>
-      <button type="button" class="review-link" id="categoryBrowseBtn">Browse by Category →</button>
+        <div class="who-pills" id="whoPills"></div>
+
+        <div class="tear"></div>
+
+        <div class="donut-row">
+          <div class="donut-wrap">
+            <div class="donut" id="donutChart"></div>
+            <div class="donut-hole">
+              <div class="donut-hole-label">Top</div>
+              <div class="donut-hole-value" id="donutTopCat">—</div>
+            </div>
+          </div>
+          <div class="donut-legend" id="donutLegend"></div>
+        </div>
+
+        <div class="cat-breakdown" id="catBreakdown"></div>
+        <button type="button" class="review-link" id="moreCategoriesBtn" hidden></button>
+      </section>
+
+      <section class="entries" id="entriesSection">
+        <h2 class="entries-heading">Entries</h2>
+        <div id="entriesList" class="entries-list"></div>
+        <div id="emptyState" class="empty-state" hidden>
+          Nothing logged for this month yet.<br />Tap + to add the first one.
+        </div>
+      </section>
+
     </section>
 
-    <!-- ===== Entries list ===== -->
-    <section class="entries" id="entriesSection">
-      <h2 class="entries-heading">Entries</h2>
-      <div id="entriesList" class="entries-list">
-        <!-- filled by JS -->
+    <!-- ======================================================= -->
+    <!-- CATEGORIES TAB -->
+    <!-- ======================================================= -->
+    <section class="view" id="view-categories" hidden>
+
+      <div class="tab-view-header">
+        <h2 class="tab-view-title">Categories</h2>
+        <div class="pill-group" id="catScopePills">
+          <button type="button" class="pill selected" data-scope="all">All Time</button>
+          <button type="button" class="pill" data-scope="month">By Month</button>
+        </div>
       </div>
-      <div id="emptyState" class="empty-state" hidden>
-        Nothing logged for this month yet.<br />Tap + to add the first one.
+
+      <div class="month-nav" id="catMonthNav" hidden>
+        <button class="nav-arrow" id="prevCatMonth" aria-label="Previous month">‹</button>
+        <button class="month-label" id="catMonthLabel">This Month</button>
+        <button class="nav-arrow" id="nextCatMonth" aria-label="Next month">›</button>
       </div>
+
+      <div class="pill-group chips" id="categoryPickerPills"></div>
+
+      <div class="stat-grid" id="categoryStats"></div>
+
+      <div class="entries-list" id="categoryEntriesList"></div>
+      <div id="categoryEmptyState" class="empty-state" hidden>
+        No expenses logged in this category yet.
+      </div>
+
+    </section>
+
+    <!-- ======================================================= -->
+    <!-- INSIGHTS TAB -->
+    <!-- ======================================================= -->
+    <section class="view" id="view-insights" hidden>
+
+      <div class="tab-view-header">
+        <h2 class="tab-view-title" id="reviewTitle">This Month</h2>
+      </div>
+
+      <div class="month-nav">
+        <button class="nav-arrow" id="prevMonthInsights" aria-label="Previous month">‹</button>
+        <button class="month-label" id="insightsMonthLabel">This Month</button>
+        <button class="nav-arrow" id="nextMonthInsights" aria-label="Next month">›</button>
+      </div>
+
+      <div class="stat-grid" id="reviewStats"></div>
+
+      <h3 class="review-section-title">Categories</h3>
+      <div class="rank-list" id="reviewCategories"></div>
+
+      <h3 class="review-section-title">Biggest single purchases</h3>
+      <div class="rank-list" id="reviewPurchases"></div>
+
+      <h3 class="review-section-title">Who paid the most</h3>
+      <div class="rank-list" id="reviewWho"></div>
+
+      <h3 class="review-section-title">Last 6 months</h3>
+      <div class="trend-chart" id="reviewTrend"></div>
+
     </section>
 
   </main>
 
   <!-- Floating add button -->
   <button id="addBtn" class="fab" aria-label="Add expense">+</button>
+
+  <!-- Bottom tab bar -->
+  <nav class="tabbar">
+    <button class="tab-btn selected" id="tabHomeBtn" data-tab="home">Home</button>
+    <button class="tab-btn" id="tabCategoriesBtn" data-tab="categories">Categories</button>
+    <button class="tab-btn" id="tabInsightsBtn" data-tab="insights">Insights</button>
+  </nav>
 
   <!-- ===== Add / Edit Expense Sheet ===== -->
   <div class="sheet-backdrop" id="expenseBackdrop" hidden>
@@ -193,27 +258,6 @@
     </form>
   </div>
 
-  <!-- ===== Category Browser Sheet ===== -->
-  <div class="sheet-backdrop" id="categoryBackdrop" hidden>
-    <div class="sheet sheet-tall" id="categorySheet">
-      <div class="sheet-handle"></div>
-      <h2>Browse by Category</h2>
-
-      <div class="pill-group chips" id="categoryPickerPills"></div>
-
-      <div class="stat-grid" id="categoryStats"></div>
-
-      <div class="entries-list" id="categoryEntriesList"></div>
-      <div id="categoryEmptyState" class="empty-state" hidden>
-        No expenses logged in this category yet.
-      </div>
-
-      <div class="sheet-actions">
-        <button type="button" class="btn-solid" id="closeCategoryBtn" style="flex:1;">Close</button>
-      </div>
-    </div>
-  </div>
-
   <!-- ===== Bulk Import Sheet ===== -->
   <div class="sheet-backdrop" id="importBackdrop" hidden>
     <form class="sheet sheet-tall" id="importSheet">
@@ -240,32 +284,6 @@
         <button type="submit" class="btn-solid" id="runImportBtn">Import</button>
       </div>
     </form>
-  </div>
-
-  <!-- ===== Month in Review Sheet ===== -->
-  <div class="sheet-backdrop" id="reviewBackdrop" hidden>
-    <div class="sheet sheet-tall" id="reviewSheet">
-      <div class="sheet-handle"></div>
-      <h2 id="reviewTitle">Month in Review</h2>
-
-      <div class="stat-grid" id="reviewStats"></div>
-
-      <h3 class="review-section-title">Categories</h3>
-      <div class="rank-list" id="reviewCategories"></div>
-
-      <h3 class="review-section-title">Biggest single purchases</h3>
-      <div class="rank-list" id="reviewPurchases"></div>
-
-      <h3 class="review-section-title">Who paid the most</h3>
-      <div class="rank-list" id="reviewWho"></div>
-
-      <h3 class="review-section-title">Last 6 months</h3>
-      <div class="trend-chart" id="reviewTrend"></div>
-
-      <div class="sheet-actions">
-        <button type="button" class="btn-solid" id="closeReviewBtn" style="flex:1;">Close</button>
-      </div>
-    </div>
   </div>
 
   <script src="app.js"></script>
