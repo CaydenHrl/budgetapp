@@ -214,7 +214,10 @@ input {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-bottom: 4px;
+  padding: 2px 4px 4px 0;
+  max-height: 280px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .cat-row {
