@@ -214,6 +214,10 @@ input {
 
 .cat-row {
   position: relative;
+  cursor: pointer;
+}
+.cat-row:active {
+  opacity: 0.7;
 }
 
 .cat-row-top {
@@ -451,6 +455,12 @@ input {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.rank-row[data-cat] {
+  cursor: pointer;
+}
+.rank-row[data-cat]:active {
+  opacity: 0.7;
 }
 
 .rank-num {
