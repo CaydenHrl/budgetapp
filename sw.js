@@ -1,6 +1,6 @@
 // Minimal app-shell cache. Data calls to the GitHub API always go to the
 // network (never cached) so you always see live numbers when you have signal.
-const CACHE_NAME = "ledger-shell-v7";
+const CACHE_NAME = "ledger-shell-v9";
 const SHELL_FILES = [
   "./index.html",
   "./style.css",
