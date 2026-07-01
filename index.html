@@ -65,6 +65,7 @@
       </div>
 
       <button type="button" class="review-link" id="reviewBtn">Month in Review →</button>
+      <button type="button" class="review-link" id="categoryBrowseBtn">Browse by Category →</button>
     </section>
 
     <!-- ===== Entries list ===== -->
@@ -189,6 +190,27 @@
         <button type="submit" class="btn-solid" id="saveSettingsBtn">Save &amp; Connect</button>
       </div>
     </form>
+  </div>
+
+  <!-- ===== Category Browser Sheet ===== -->
+  <div class="sheet-backdrop" id="categoryBackdrop" hidden>
+    <div class="sheet sheet-tall" id="categorySheet">
+      <div class="sheet-handle"></div>
+      <h2>Browse by Category</h2>
+
+      <div class="pill-group chips" id="categoryPickerPills"></div>
+
+      <div class="stat-grid" id="categoryStats"></div>
+
+      <div class="entries-list" id="categoryEntriesList"></div>
+      <div id="categoryEmptyState" class="empty-state" hidden>
+        No expenses logged in this category yet.
+      </div>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn-solid" id="closeCategoryBtn" style="flex:1;">Close</button>
+      </div>
+    </div>
   </div>
 
   <!-- ===== Bulk Import Sheet ===== -->
