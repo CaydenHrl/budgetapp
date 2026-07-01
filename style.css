@@ -38,7 +38,7 @@ html, body {
 }
 
 body {
-  padding-bottom: 96px;
+  padding-bottom: 150px;
   min-height: 100vh;
 }
 
@@ -642,7 +642,7 @@ input {
 .fab {
   position: fixed;
   right: 20px;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 78px);
   width: 58px;
   height: 58px;
   border-radius: 50%;
@@ -659,6 +659,60 @@ input {
   z-index: 30;
 }
 .fab:active { transform: scale(0.95); }
+
+/* ---------- Bottom tab bar ---------- */
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 6px 8px calc(env(safe-area-inset-bottom, 0px) + 6px);
+}
+
+.tab-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 10px 4px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.tab-btn.selected {
+  color: var(--brass);
+  background: var(--brass-soft);
+}
+
+/* ---------- Tab view sections ---------- */
+.view {
+  display: block;
+}
+.view[hidden] {
+  display: none;
+}
+
+.tab-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 16px;
+  flex-wrap: wrap;
+}
+
+.tab-view-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0;
+}
 
 /* ---------- Bottom sheets ---------- */
 .sheet-backdrop {
@@ -746,7 +800,8 @@ input {
 .field select:focus,
 .pill:focus-visible,
 .icon-btn:focus-visible,
-.fab:focus-visible {
+.fab:focus-visible,
+.tab-btn:focus-visible {
   outline: 2px solid var(--brass);
   outline-offset: 1px;
 }
